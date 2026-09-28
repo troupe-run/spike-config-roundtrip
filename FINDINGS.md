@@ -4,10 +4,10 @@ Throwaway feasibility spike. Answers, not production code.
 Stack: Python 3.12+, ruamel.yaml 0.19.1, watchfiles 1.3.0, eventsourcing 9.5.5, jsonschema 4.26.0, pytest.
 Run: `uv run pytest -q`
 
-**Final full-suite run (2026-09-28):** `41 passed in 5.68s`
-(watcher tests in `test_q5_loop_safety.py` additionally re-run 7 times in total with no flakes.)
+**Final full-suite run (2026-09-28, after Q9):** `112 passed in 16.19s`
+(watcher tests in `test_q5_loop_safety.py` additionally re-run after the Q9 changes, with no flakes.)
 
-Verdicts: Q1 yes · Q2 yes-with-caveats · Q3 yes · Q4 yes · Q5 yes · Q6 yes-with-caveats · Q7 yes · Q8 below.
+Verdicts: Q1 yes · Q2 yes-with-caveats (superseded by Q9) · Q3 yes · Q4 yes · Q5 yes · Q6 yes-with-caveats · Q7 yes · Q8 below · Q9 yes (62/64 surgical; 2 are unloadable inputs).
 
 ## Questions
 
