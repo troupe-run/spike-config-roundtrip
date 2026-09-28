@@ -19,6 +19,7 @@ Verdicts: Q1 yes · Q2 yes-with-caveats · Q3 yes · Q4 yes · Q5 yes · Q6 yes-
 6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — see below
 7. Include cycles detected with a clear error? — see below
 8. Surprises / hard parts / what didn't work — see below
+9. (follow-up) Is EVERY write-back surgical — only the changed value's bytes differ — across a corpus of nasty YAML? — _in progress_
 
 ## Q1. Merged view with provenance — **YES**
 
@@ -283,6 +284,12 @@ features) plus the fixes already noted above.
 9. **Minor:** first `detect_indent` heuristic only looks at the first block sequence; `ConfigRemoved` was needed
    in addition to `ConfigSet` (removal vs YAML null); list items as leaves means an insert at index 0 emits one
    event per shifted item.
+
+## Q9. Surgical write-back across a nasty-YAML corpus — _in progress_
+
+Owner's bar: every write-back is surgical; only the changed value's bytes differ, never collateral reformatting.
+
+_Cases and results are being filled in below as each group is done._
 
 ## Recommendation
 
