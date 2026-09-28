@@ -18,6 +18,8 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
+
+from .surgical import AliasTargetError, SpliceError, surgical_set
 from ruamel.yaml.scalarstring import ScalarString
 
 INCLUDE_RE = re.compile(r"^(file:|https?://)\S+$")
@@ -116,7 +118,7 @@ class Config:
         if source.startswith(("http://", "https://")):
             with urllib.request.urlopen(source, timeout=5) as r:
                 return r.read().decode()
-        return Path(source).read_text()
+        return read_exact(source)
 
     def _resolve_ref(self, ref: str, including: str) -> str:
         if ref.startswith(("http://", "https://")):
@@ -233,41 +235,32 @@ class Config:
             value = TaggedScalar(value, style='"', tag=LITERAL_TAG)
         prov, rel, mode = self.plan_set(path, value)
         # compare-and-swap: refuse to clobber a hand edit made since we loaded this file
-        if Path(prov.source).read_text() != self.texts[prov.source]:
+        if read_exact(prov.source) != self.texts[prov.source]:
             raise ConcurrentEditError(f"{prov.source} changed on disk since it was loaded; reload and retry")
         if mode == "replace-text" and isinstance(value, TaggedScalar):
             value = str(value.value)  # a text file's content is never an include
         if mode == "replace-text":
             if not isinstance(value, str):
                 raise ConfigError(f"{path!r} is a text include ({prov.source}); value must be a string")
+            if "\r\n" in self.texts[prov.source] and "\r\n" not in value:
+                value = value.replace("\n", "\r\n")  # caller gave LF content for a CRLF file
             _atomic_write(prov.source, value)
         else:
-            doc = self.docs[prov.source]
-            parent_inner = prov.inner_path[:-1] if mode == "replace" else prov.inner_path
-            keys = (prov.inner_path[-1],) if mode == "replace" else rel
-            if not parent_inner and mode == "replace" and not keys:
+            if mode == "replace" and not prov.inner_path:
                 raise ConfigError("cannot replace a whole file root")
-            node = doc
-            for k in parent_inner:
-                node = node[k]
-            if mode == "add" and isinstance(node, CommentedMap) and keys[0] not in node:
-                _steal_trailing_comment(node, keys[0])
-            for k in keys[:-1]:  # create intermediate mappings for deep new keys
-                node = node.setdefault(k, CommentedMap())
-            last = keys[-1]
-            old = node[last] if (isinstance(node, dict) and last in node) or (isinstance(node, list) and isinstance(last, int) and last < len(node)) else None
-            styled = _restyle(old, value)
             text = self.texts[prov.source]
-            spliced = None
-            if mode == "replace" and not isinstance(old, (dict, list)) and not isinstance(value, (dict, list)):
-                spliced = splice_scalar(text, prov.inner_path, styled)
-            if spliced is not None:
+            full = prov.inner_path if mode == "replace" else (*prov.inner_path, *rel)
+            try:
+                new_text = surgical_set(text, full, value)
                 self.last_write_strategy = "splice"
-                _atomic_write(prov.source, spliced)
-            else:
+                self.last_splice_error = None
+            except AliasTargetError as e:
+                raise ConfigError(f"cannot set {path!r}: {e}") from e
+            except SpliceError as e:
                 self.last_write_strategy = "dump"
-                node[last] = styled
-                _atomic_write(prov.source, dump_like(doc, text))
+                self.last_splice_error = str(e)
+                new_text = self._dump_set(prov, rel, mode, value)
+            _atomic_write(prov.source, new_text)
         original = self.texts[prov.source]
         try:
             self.reload()
@@ -276,6 +269,26 @@ class Config:
             self.reload()
             raise
         return prov.source
+
+    def _dump_set(self, prov, rel, mode, value) -> str:
+        """Fallback: mutate the ruamel doc and re-serialise the whole file (NOT surgical)."""
+        doc = self.docs[prov.source]
+        parent_inner = prov.inner_path[:-1] if mode == "replace" else prov.inner_path
+        keys = (prov.inner_path[-1],) if mode == "replace" else rel
+        node = doc
+        for k in parent_inner:
+            node = node[k]
+        if mode == "add" and isinstance(node, CommentedMap) and keys[0] not in node:
+            _steal_trailing_comment(node, keys[0])
+        for k in keys[:-1]:
+            node = node.setdefault(k, CommentedMap())
+        last = keys[-1]
+        if isinstance(node, list) and last == len(node):
+            node.append(value)
+        else:
+            old = node[last] if (isinstance(node, dict) and last in node) or (isinstance(node, list) and last < len(node)) else None
+            node[last] = _restyle(old, value)
+        return dump_like(doc, self.texts[prov.source])
 
     # ---- flat leaf view (for event-sourced diffing) ------------------------------
 
@@ -434,10 +447,15 @@ def dump_like(doc, original_text: str) -> str:
     return buf.getvalue()
 
 
+def read_exact(path: str) -> str:
+    with open(path, encoding="utf-8", newline="") as f:  # keep CRLF as-is
+        return f.read()
+
+
 def _atomic_write(path: str, text: str) -> None:
     d = os.path.dirname(path)
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".troupe-tmp-")
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:  # never translate line endings
         f.write(text)
     os.replace(tmp, path)
 

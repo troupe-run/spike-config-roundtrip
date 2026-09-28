@@ -61,18 +61,23 @@ def test_scalar_replacements_use_byte_exact_splice(root):
     assert cfg.last_write_strategy == "splice"
 
 
-def test_structural_change_falls_back_to_dump_with_detected_indent(project, root):
-    """Replacing a scalar with a mapping can't be spliced; ruamel dumps the whole file.
-    With per-file indent detection the untouched sequence keeps its `  - x` style and
-    comments survive; the only collateral damage is comment spacing on *changed* lines."""
+def test_scalar_to_mapping_is_spliced_not_dumped(project, root):
+    """Q2 originally needed the dump path here; since Q9 the splice engine handles it."""
     cfg = Config(root)
     before = snapshot(project)
     cfg.set("agents.coder.model", {"name": "opus", "temperature": 0.2})
-    assert cfg.last_write_strategy == "dump"
+    assert cfg.last_write_strategy == "splice"
     d = diff(before, snapshot(project))
     print(d)
     assert changed_lines(d) == ["-model: 'opus'", "+model:", "+  name: opus", "+  temperature: 0.2"]
     assert cfg.get("agents.coder.model.temperature") == 0.2
+
+
+def test_dump_fallback_keeps_detected_sequence_indent():
+    """The (non-surgical) fallback still exists; with indent detection it doesn't re-indent lists."""
+    from spike_config_roundtrip.config import dump_like, make_yaml
+    src = "a: 1\ntools:\n  - bash\n  - edit\n"
+    assert dump_like(make_yaml().load(src), src) == src
 
 
 def test_naive_ruamel_dump_would_reindent_sequences(root):
