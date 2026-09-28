@@ -33,6 +33,17 @@ def show(s):
     return s.replace("\r", "\\r").replace("\t", "\\t")
 
 
+def lines(text):
+    out = [show(l[:-1] if l.endswith("\n") else l) + "\n" for l in text.splitlines(True)]
+    if text and not text.endswith("\n"):
+        out[-1] = out[-1][:-1] + "   [no EOL at end of file]\n"
+    return out
+
+
+def cell(s):
+    return s.replace("|", "\\|")
+
+
 def main():
     rows, diffs = [], []
     for c in CASES:
@@ -43,10 +54,9 @@ def main():
         if c.expect == "error":
             surgical = "n/a (rejected)" if err else "NO"
         d = "".join(difflib.unified_diff(
-            [show(l) + "\n" for l in c.before.splitlines(True)],
-            [show(l) + "\n" for l in after.splitlines(True)], "before", "after", n=1))
+            lines(c.before), lines(after), "before", "after", n=1))
         ch = sum(1 for l in d.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---")))
-        rows.append(f"| {c.group} | {c.name} | {s} | {surgical} | {ch} | {c.note or ''}{(' ' + err) if err else ''} |")
+        rows.append(f"| {c.group} | {cell(c.name)} | {s} | {surgical} | {ch} | {cell(c.note or '')}{cell(' ' + err) if err else ''} |")
         diffs.append(f"**{c.group} / {c.name}** (`{', '.join(f'set {p}' for p, _ in c.ops)}`)\n\n```diff\n{d or '(no change)\n'}```\n")
     out = [BEGIN, "", "| group | case | strategy | surgical | changed lines | note |", "|---|---|---|---|---|---|", *rows,
            "", f"**{sum(1 for r in rows if '| yes |' in r)} of {len(rows)} cases surgical.**", "",

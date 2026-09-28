@@ -295,21 +295,21 @@ _Cases and results are being filled in below as each group is done._
 
 | group | case | strategy | surgical | changed lines | note |
 |---|---|---|---|---|---|
-| block scalars | literal | change one line | splice | yes | 6 |  |
-| block scalars | literal |- (strip) change one line | splice | yes | 6 |  |
-| block scalars | literal |+ (keep) with trailing blank lines | splice | yes | 6 |  |
-| block scalars | folded > change second paragraph, first stays wrapped | splice | yes | 8 | changed paragraph is re-emitted on one line; unchanged paragraphs keep their wrapping |
-| block scalars | folded >- change | splice | yes | 8 | a changed folded paragraph loses its original line wrapping |
-| block scalars | explicit indentation indicator |2 | splice | yes | 6 |  |
-| block scalars | clip block followed by blank lines | splice | yes | 6 |  |
-| block scalars | block followed by a comment | splice | yes | 6 |  |
-| block scalars | block header with comment | splice | yes | 6 |  |
-| block scalars | plain -> multi-line (EOL comment moves to header) | splice | yes | 9 |  |
-| block scalars | plain -> multi-line without final newline uses |- | splice | yes | 9 |  |
-| block scalars | multi-line -> plain | splice | yes | 9 |  |
-| block scalars | block scalar as sequence item | splice | yes | 6 |  |
-| block scalars | block scalar at EOF without trailing newline | splice | yes | 3 | last line of file has no line break |
-| block scalars | chomping change: clip value gains trailing newlines -> |+ | splice | yes | 8 | header indicator changes because the value's trailing newlines changed; that is part of the value |
+| block scalars | literal \| change one line | splice | yes | 2 |  |
+| block scalars | literal \|- (strip) change one line | splice | yes | 2 |  |
+| block scalars | literal \|+ (keep) with trailing blank lines | splice | yes | 2 |  |
+| block scalars | folded > change second paragraph, first stays wrapped | splice | yes | 3 | changed paragraph is re-emitted on one line; unchanged paragraphs keep their wrapping |
+| block scalars | folded >- change | splice | yes | 3 | a changed folded paragraph loses its original line wrapping |
+| block scalars | explicit indentation indicator \|2 | splice | yes | 2 |  |
+| block scalars | clip block followed by blank lines | splice | yes | 2 |  |
+| block scalars | block followed by a comment | splice | yes | 2 |  |
+| block scalars | block header with comment | splice | yes | 2 |  |
+| block scalars | plain -> multi-line (EOL comment moves to header) | splice | yes | 4 |  |
+| block scalars | plain -> multi-line without final newline uses \|- | splice | yes | 4 |  |
+| block scalars | multi-line -> plain | splice | yes | 4 |  |
+| block scalars | block scalar as sequence item | splice | yes | 2 |  |
+| block scalars | block scalar at EOF without trailing newline | splice | yes | 2 | last line of file has no line break |
+| block scalars | chomping change: clip value gains trailing newlines -> \|+ | splice | yes | 3 | header indicator changes because the value's trailing newlines changed; that is part of the value |
 
 **15 of 15 cases surgical.**
 
@@ -322,13 +322,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -3,3 +3,3 @@
    line one
-
 -  line two
-
 +  line 2
-
    line three
-
 ```
 
 **block scalars / literal |- (strip) change one line** (`set script`)
@@ -338,13 +334,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -2,3 +2,3 @@
    echo a
-
 -  echo b
-
 +  echo B
-
  next: 1
-
 ```
 
 **block scalars / literal |+ (keep) with trailing blank lines** (`set keep`)
@@ -354,13 +346,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -2,3 +2,3 @@
    x
-
 -  y
-
 +  Y
-
  
-
 ```
 
 **block scalars / folded > change second paragraph, first stays wrapped** (`set desc`)
@@ -370,15 +358,10 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -4,4 +4,3 @@
  
-
 -  Second para
-
 -  here.
-
 +  Second paragraph changed.
-
  next: 1
-
 ```
 
 **block scalars / folded >- change** (`set summary`)
@@ -388,15 +371,10 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -1,4 +1,3 @@
  summary: >-
-
 -  one two
-
 -  three
-
 +  one two four
-
  next: 1
-
 ```
 
 **block scalars / explicit indentation indicator |2** (`set code`)
@@ -406,13 +384,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -2,3 +2,3 @@
      indented first
-
 -  normal
-
 +  changed
-
  next: 1
-
 ```
 
 **block scalars / clip block followed by blank lines** (`set a`)
@@ -422,13 +396,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -1,3 +1,3 @@
  a: |
-
 -  x
-
 +  y
-
  
-
 ```
 
 **block scalars / block followed by a comment** (`set a`)
@@ -438,13 +408,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -2,3 +2,3 @@
    x
-
 -  y
-
 +  z
-
  # about b
-
 ```
 
 **block scalars / block header with comment** (`set a`)
@@ -454,13 +420,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -1,3 +1,3 @@
  a: |  # keep me
-
 -  x
-
 +  y
-
  b: 1
-
 ```
 
 **block scalars / plain -> multi-line (EOL comment moves to header)** (`set a`)
@@ -470,15 +432,10 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -1,2 +1,4 @@
 -a: short  # note
-
 +a: |  # note
-
 +  line1
-
 +  line2
-
  b: 1
-
 ```
 
 **block scalars / plain -> multi-line without final newline uses |-** (`set a`)
@@ -488,15 +445,10 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -1,2 +1,4 @@
 -a: short
-
 +a: |-
-
 +  line1
-
 +  line2
-
  b: 1
-
 ```
 
 **block scalars / multi-line -> plain** (`set a`)
@@ -506,15 +458,10 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -1,4 +1,2 @@
 -a: |
-
 -  x
-
 -  y
-
 +a: single
-
  
-
 ```
 
 **block scalars / block scalar as sequence item** (`set steps.0`)
@@ -524,13 +471,9 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -3,3 +3,3 @@
      echo a
-
 -    echo b
-
 +    echo c
-
    - done
-
 ```
 
 **block scalars / block scalar at EOF without trailing newline** (`set b`)
@@ -540,9 +483,8 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -3,2 +3,2 @@
    x
-
--  y
-+  z
+-  y   [no EOL at end of file]
++  z   [no EOL at end of file]
 ```
 
 **block scalars / chomping change: clip value gains trailing newlines -> |+** (`set a`)
@@ -552,15 +494,10 @@ _Cases and results are being filled in below as each group is done._
 +++ after
 @@ -1,3 +1,4 @@
 -a: |
-
 +a: |+
-
    x
-
 +
-
  b: 1
-
 ```
 
 </details>
