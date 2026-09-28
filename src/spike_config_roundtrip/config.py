@@ -16,6 +16,8 @@ from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
+from ruamel.yaml.error import CommentMark
+from ruamel.yaml.tokens import CommentToken
 from ruamel.yaml.scalarstring import ScalarString
 
 INCLUDE_RE = re.compile(r"^(file:|https?://)\S+$")
@@ -225,6 +227,8 @@ class Config:
             node = doc
             for k in parent_inner:
                 node = node[k]
+            if mode == "add" and isinstance(node, CommentedMap) and keys[0] not in node:
+                _steal_trailing_comment(node, keys[0])
             for k in keys[:-1]:  # create intermediate mappings for deep new keys
                 node = node.setdefault(k, CommentedMap())
             last = keys[-1]
@@ -264,6 +268,30 @@ class Config:
 
     def local_sources(self) -> set[str]:
         return {s for s in self.texts if not s.startswith(("http://", "https://"))}
+
+
+def _steal_trailing_comment(mapping: CommentedMap, new_key) -> None:
+    """ruamel attaches blank lines + standalone comments that FOLLOW a mapping's last entry to that
+    entry (possibly deep inside it). Appending a key would then land below a comment that really
+    introduces the *next* section. Move everything after the end-of-line comment onto the new key."""
+    if not mapping:
+        return
+    m, last = mapping, list(mapping)[-1]
+    while isinstance(m[last], CommentedMap) and m[last] and last not in m.ca.items:
+        m, last = m[last], list(m[last])[-1]
+    tok = m.ca.items.get(last, [None, None, None, None])[2] if last in m.ca.items else None
+    if tok is None or "\n" not in tok.value:
+        return
+    i = tok.value.index("\n")
+    eol, rest = tok.value[: i + 1], tok.value[i + 1 :]
+    if not rest:
+        return
+    if eol.strip():
+        tok.value = eol
+    else:
+        m.ca.items[last][2] = None
+    mapping[new_key] = None  # placeholder so ca entry has a home; caller overwrites value
+    mapping.ca.items[new_key] = [None, None, CommentToken("\n" + rest, CommentMark(0), None), None]
 
 
 def _plain(v):

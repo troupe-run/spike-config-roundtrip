@@ -8,7 +8,7 @@ Run: `uv run pytest -q`
 
 1. Load root + nested includes (yaml-in-yaml-in-yaml, md text include) into a merged view with provenance per node? — see below
 2. `set(dotted_path, value)` writes into the correct source file (nested yaml include, md text include), preserving untouched formatting? — see below
-3. New key under an included node: which file? — _pending_
+3. New key under an included node: which file? — see below
 4. Remote (https) includes: load works, set rejected clearly? — _pending_
 5. Loop safety: write-back observed by watcher yields zero events; external edit yields exactly expected events? — _pending_
 6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — _pending_
@@ -94,6 +94,35 @@ Caveats:
 - Replacing a whole include root (e.g. `set agents.coder <scalar>`) is refused in the spike ("cannot replace a
   whole file root"). The real design must decide: replace the include reference in the parent file, or
   rewrite the included file. Recommend: explicit `--unlink-include` flag; default refuse.
+
+## Q3. New key under an included node — **YES** (rule below)
+
+Tests: `tests/test_q3_new_keys.py` (7 tests).
+
+**Rule: a new key is written to the file that owns the deepest EXISTING ancestor of the path** (i.e. the
+mapping that will directly contain it, or the nearest existing ancestor for deep paths; missing intermediate
+mappings are created in that same file). Consequences:
+
+| `set` | lands in | why |
+|---|---|---|
+| `agents.coder.temperature` | `agents/coder.yaml` | `agents.coder` *is* the root of coder.yaml |
+| `agents.coder.limits.max_retries` | `agents/limits.yaml` | two-level include |
+| `agents.coder.budget.daily_usd` | `agents/coder.yaml` | deepest existing ancestor = `agents.coder`; `budget:` created there |
+| `agents.tester` (value `file:agents/tester.yaml`) | `troupe.yml` | the `agents` mapping lives in root; the new include is resolved on reload |
+| `agents.reviewer.temperature` | `troupe.yml` | inline mapping |
+| `agents.coder.system_prompt.extra` | rejected | parent is a text include (a string) |
+
+This matches the intuition "the include IS that subtree" and keeps an included file self-contained and
+reusable across projects. The alternative (always write overrides to the root/includer) would need a merge
+semantic (include + local overrides at the same key) that the current include design doesn't have. If
+per-project overrides of shared includes are wanted later, that's a separate feature (see Q8).
+
+**Surprise (fixed):** ruamel attaches blank lines and a standalone comment that *follow* a mapping's last entry
+to that entry (even when the comment visually introduces the next top-level section). A naive append puts the
+new key underneath `# ---- settings ----`. `_steal_trailing_comment` moves that trailing block onto the new
+key before dumping. (`test_new_key_goes_above_a_section_comment_not_below_it`). This is exactly the kind of
+ruamel comment-attachment quirk that will keep appearing in the real implementation; it needs a corpus of
+fixture files and golden diffs.
 
 ## Recommendation
 
