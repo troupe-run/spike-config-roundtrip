@@ -100,9 +100,10 @@ def schema_says_literal_uri(schema: dict | None) -> bool:
 class Config:
     """Loads a root troupe.yml, resolving includes, recording provenance."""
 
-    def __init__(self, root: str | os.PathLike, schema: dict | None = None):
+    def __init__(self, root: str | os.PathLike, schema: dict | None = None, allow_dump: bool = False):
         self.root = str(Path(root).resolve())
         self.schema = schema
+        self.allow_dump = allow_dump  # False: a write that can't be made surgical is refused
         self.reload()
 
     # ---- reading -------------------------------------------------------------
@@ -262,6 +263,9 @@ class Config:
             except RejectedSet as e:
                 raise ConfigError(f"cannot set {path!r}: {e}") from e
             except SpliceError as e:
+                if not self.allow_dump:
+                    raise ConfigError(f"cannot set {path!r} surgically ({e}); refusing to re-serialise "
+                                      f"{prov.source}. Edit the file by hand.") from e
                 self.last_write_strategy = "dump"
                 self.last_splice_error = str(e)
                 new_text = self._dump_set(prov, rel, mode, value)

@@ -17,8 +17,8 @@ def sweep():
         refs = index(c.before)
         for p, r in refs.items():
             targets = []
-            if isinstance(r.node, ScalarNode) and p:
-                targets.append(p)
+            if p:
+                targets.append(p)  # replace: scalar leaves AND whole collections
             if isinstance(r.node, MappingNode):
                 targets.append((*p, "zz_new"))
             if isinstance(r.node, SequenceNode):
@@ -40,5 +40,5 @@ def test_every_leaf_add_and_append_in_corpus_splices():
     print(f"spliced={t['spliced']} rejected={t['rejected']} failed={len(t['failed'])}")
     for f in t["failed"][:20]:
         print(f)
-    assert t["spliced"] > 1500
+    assert t["spliced"] > 2000
     assert t["failed"] == []

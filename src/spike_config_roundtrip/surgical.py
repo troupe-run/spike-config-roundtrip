@@ -512,8 +512,20 @@ def _replace_container(text, ref, value, nl) -> str:
     if getattr(node, "flow_style", False) or ref.flow:
         r = render_inline(value, None, True) if isinstance(value, (dict, list)) else render_inline(value, None, True)
         return text[: node.start_mark.index] + r + text[node.end_mark.index:]
+    if getattr(node, "anchor", None):
+        raise RejectedSet(f"this collection defines anchor &{node.anchor}; replacing it wholesale would "
+                          f"change or break its aliases. Set its fields individually instead")
     if ref.key is None:
-        raise SpliceError("replacing a block collection that is a sequence item is not spliced")
+        # block collection that is itself a list item: `- a: 1\n  b: 2` -> swap from after '- '
+        a = node.start_mark.index
+        end = _last_line_end(text, node)
+        c = col(text, a)
+        if isinstance(value, (dict, list)) and value:
+            bl = render_block_lines(value, nl)
+            body = bl[0] + "".join(nl + (" " * c + ln if ln else ln) for ln in bl[1:])
+        else:
+            body = render_inline(value, None, False)
+        return text[:a] + body + (nl if text[:end].endswith("\n") else "") + text[end:]
     # block container under `key:` -- keep the key line (and its comment), swap the body lines
     body_start = line_start(text, node.start_mark.index)
     body_end = _last_line_end(text, node)

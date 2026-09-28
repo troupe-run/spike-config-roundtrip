@@ -345,7 +345,7 @@ _Cases and results are being filled in below as each group is done._
 | encoding | unicode values and comments | splice | yes | 4 |  |
 | encoding | CRLF line endings: change, append, block scalar, add key | splice | yes | 6 |  |
 | encoding | tabs inside comment text | splice | yes | 4 |  |
-| multi-document | multi-document file (---) | error | n/a (rejected) | 0 | rejected at LOAD time with a clear ConfigError; file untouched ConfigError: /private/var/folders/nn/d2s0hr6x7p73b0gr6gsqp9yw0000gp/T/tmpunkcrf7t/c.yml: multi-document YAML (---) is not supported in troupe config |
+| multi-document | multi-document file (---) | error | n/a (rejected) | 0 | rejected at LOAD time with a clear ConfigError; file untouched ConfigError: /private/var/folders/nn/d2s0hr6x7p73b0gr6gsqp9yw0000gp/T/tmphzigfqtp/c.yml: multi-document YAML (---) is not supported in troupe config |
 | structural | anchored scalar: anchor kept, alias follows | splice | yes | 2 | setting the ANCHOR is allowed (it's the definition); setting via the alias path is rejected |
 | structural | tag + anchor on one scalar | splice | yes | 2 |  |
 | structural | value inside a merge-key base | splice | yes | 2 |  |

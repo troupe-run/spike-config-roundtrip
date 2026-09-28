@@ -76,3 +76,23 @@ def test_verifier_rejects_collateral_change():
     with pytest.raises(SpliceError, match="kind/style"):
         _verify(old, "a: 1\nb: 'x'\nc:\n- 1\n- 2\n- 3\n", ("c", 2), 3, ("c", 2))  # flow -> block
     _verify(old, "a: 2\nb: 'x'\nc: [1, 2]\n", ("a",), 2, ("a",))  # the honest one passes
+
+
+def test_non_surgical_write_is_refused_by_default(tmp_path, monkeypatch):
+    """The dump fallback is opt-in. By default a write that can't be spliced is an error and the
+    file is untouched (owner's bar: never collateral reformatting)."""
+    import spike_config_roundtrip.config as C
+    from spike_config_roundtrip.surgical import SpliceError
+
+    def boom(*a, **k):
+        raise SpliceError("forced for test")
+
+    monkeypatch.setattr(C, "surgical_set", boom)
+    f = tmp_path / "c.yml"
+    f.write_text("a: 1\nl:\n  - x\n")
+    with pytest.raises(C.ConfigError, match="surgically"):
+        Config(f).set("a", 2)
+    assert f.read_text() == "a: 1\nl:\n  - x\n"
+    cfg = Config(f, allow_dump=True)
+    cfg.set("a", 2)
+    assert cfg.last_write_strategy == "dump"
