@@ -1,0 +1,22 @@
+[project]
+name = "spike-config-roundtrip"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Martin Lau", email = "160232611+martin-at-hpsgd@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "eventsourcing>=9.5.5",
+    "jsonschema>=4.26.0",
+    "pytest>=9.1.1",
+    "ruamel-yaml>=0.19.1",
+    "watchfiles>=1.3.0",
+]
+
+[project.scripts]
+spike-config-roundtrip = "spike_config_roundtrip:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
