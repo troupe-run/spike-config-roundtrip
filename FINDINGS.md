@@ -10,7 +10,7 @@ Run: `uv run pytest -q`
 2. `set(dotted_path, value)` writes into the correct source file (nested yaml include, md text include), preserving untouched formatting? — see below
 3. New key under an included node: which file? — see below
 4. Remote (https) includes: load works, set rejected clearly? — see below
-5. Loop safety: write-back observed by watcher yields zero events; external edit yields exactly expected events? — _pending_
+5. Loop safety: write-back observed by watcher yields zero events; external edit yields exactly expected events? — see below
 6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — _pending_
 7. Include cycles detected with a clear error? — _pending_
 8. Surprises / hard parts / what didn't work — _pending_
@@ -147,6 +147,48 @@ Caveats:
   the fetched content hash in the projection and treating a refresh as an explicit command that emits events.
 - `file:` inside a remote YAML resolves against the URL. That's the natural rule but means a remote file can
   never reach the local filesystem (good; a security property worth keeping explicitly).
+
+## Q5. Loop safety via content-diff idempotence — **YES**
+
+Tests: `tests/test_q5_loop_safety.py` (6 tests; watcher tests run 5x in a row with no flakes, ~2.5s each).
+Code: `src/spike_config_roundtrip/service.py`.
+
+Model: `ProjectConfig` aggregate (eventsourcing 9.5.5, default POPO/in-memory store) with `ConfigSet(path, old,
+new, source)` and `ConfigRemoved(path, old, source)`; `source` in {`import`, `cli`, `file-watch`}. The projection
+is a flat `dotted.path -> leaf value` map.
+
+**The one rule:** every route into the projection (startup import, CLI set, watcher batch) calls the same
+`reconcile(source)`: load files -> flatten merged view -> diff against projection -> emit only differences. The
+CLI path is `plan_set` (validate; rejects remote etc. with zero events) -> write back to owning file ->
+`reconcile("cli")`.
+
+Demonstrated:
+- `cli_set("agents.coder.limits.max_tokens", 16000)` emits exactly one `ConfigSet(..., 8000, 16000, "cli")`. The
+  watcher **does** observe the write-back (`limits.yaml` appears in its batch — asserted, not assumed) and that
+  batch diffs to **0 events**. Same for a text (md) include write-back. No suppression flags exist anywhere.
+- A hand edit touching three files at once (value change + key removal + key addition in `limits.yaml`, appended
+  line in `coder.md`, and a **formatting-only** change `retries:   3   # tuned` in `troupe.yml`) produces exactly
+  4 events, all `source="file-watch"`, and nothing for the formatting-only edit.
+- Watcher readiness is proven with a sentinel file before tests act (FSEvents on macOS can otherwise miss
+  writes made immediately after `watch()` starts).
+
+Caveats / things the real implementation must handle:
+- **Content diffing prevents echo loops, not lost updates.** If a user hand-edits a file between the CLI's load
+  and its write-back, the write-back would clobber it. Added a compare-and-swap (re-read file, compare to loaded
+  text, raise `ConcurrentEditError`). `test_cli_set_refuses_to_clobber_a_concurrent_hand_edit`. There is still a
+  tiny TOCTOU window between that check and `os.replace`; acceptable for a config file, worth naming.
+- **Source attribution needs a lock, idempotence doesn't.** The CLI holds a process lock across write+reconcile.
+  Without it the watcher could reconcile first and the change would be attributed `file-watch` instead of `cli`
+  — still exactly one event, just mislabelled. Across processes (CLI process vs daemon) this becomes a real
+  design point: recommend the CLI sends the set to the daemon (which owns the lock and the watcher) rather than
+  writing files itself.
+- Removal needs its own event (`ConfigRemoved`); `ConfigSet(new=None)` would conflate "removed" with YAML `null`.
+- Diff compares type as well as value (`1` vs `1.0` vs `true`).
+- The flat leaf projection explodes lists into `tools.0`, `tools.1`; inserting at the head of a list emits an
+  event per shifted item. Fine for a spike; the real design may want list values as leaves.
+- Atomic writes (`tempfile` + `os.replace`) create `.troupe-tmp-*` files in the watched dir; the watcher filters
+  them. The watcher reconciles on ANY change batch (full reload) rather than per-file; cheap at config sizes and
+  it naturally handles newly-added include targets.
 
 ## Recommendation
 

@@ -39,6 +39,10 @@ class ReadOnlyIncludeError(ConfigError):
     pass
 
 
+class ConcurrentEditError(ConfigError):
+    pass
+
+
 @dataclass(frozen=True)
 class Provenance:
     source: str  # absolute file path or URL
@@ -215,6 +219,9 @@ class Config:
     def set(self, path: str, value) -> str:
         """Write value into the file that owns it. Returns the file written."""
         prov, rel, mode = self.plan_set(path, value)
+        # compare-and-swap: refuse to clobber a hand edit made since we loaded this file
+        if Path(prov.source).read_text() != self.texts[prov.source]:
+            raise ConcurrentEditError(f"{prov.source} changed on disk since it was loaded; reload and retry")
         if mode == "replace-text":
             if not isinstance(value, str):
                 raise ConfigError(f"{path!r} is a text include ({prov.source}); value must be a string")
