@@ -9,7 +9,7 @@ Run: `uv run pytest -q`
 1. Load root + nested includes (yaml-in-yaml-in-yaml, md text include) into a merged view with provenance per node? — see below
 2. `set(dotted_path, value)` writes into the correct source file (nested yaml include, md text include), preserving untouched formatting? — see below
 3. New key under an included node: which file? — see below
-4. Remote (https) includes: load works, set rejected clearly? — _pending_
+4. Remote (https) includes: load works, set rejected clearly? — see below
 5. Loop safety: write-back observed by watcher yields zero events; external edit yields exactly expected events? — _pending_
 6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — _pending_
 7. Include cycles detected with a clear error? — _pending_
@@ -123,6 +123,30 @@ new key underneath `# ---- settings ----`. `_steal_trailing_comment` moves that 
 key before dumping. (`test_new_key_goes_above_a_section_comment_not_below_it`). This is exactly the kind of
 ruamel comment-attachment quirk that will keep appearing in the real implementation; it needs a corpus of
 fixture files and golden diffs.
+
+## Q4. Remote includes — **YES**
+
+Tests: `tests/test_q4_remote.py` (5 tests). A `ThreadingHTTPServer` on 127.0.0.1 serves `shared.yaml`, which
+itself includes `file:style.md` (resolved relative to the URL, so also remote).
+
+- Loading works; provenance `source` is the URL and `Provenance.remote` is true.
+- `set` on a remote scalar, on a remote text include, and a NEW key under a remote mapping are all rejected by
+  `plan_set` with `ReadOnlyIncludeError` before anything is written (snapshot of project dir unchanged). Message:
+  `cannot set 'shared.style': value comes from remote include http://127.0.0.1:PORT/style.md (included via
+  'shared' in /…/.troupe/troupe.yml), which is read-only. Override it locally by replacing the include, or edit
+  the remote source.`
+- The message names the include reference in a **local** file (first version named the nearest site, which
+  was inside the remote file, i.e. not actionable; fixed).
+
+Caveats:
+- Test uses `http://` (no TLS in a unit test); the code path treats `http://` and `https://` identically. The real
+  implementation should probably refuse plain `http://` includes by default.
+- Not addressed (by design of a spike): fetch caching, timeouts/offline behaviour, pinning (hash/ETag in the
+  projection so a remote change is an explicit event, not a silent config change), auth. **Remote content
+  changing underneath the projection is a real design question**: the watcher can't see it. Recommend recording
+  the fetched content hash in the projection and treating a refresh as an explicit command that emits events.
+- `file:` inside a remote YAML resolves against the URL. That's the natural rule but means a remote file can
+  never reach the local filesystem (good; a security property worth keeping explicitly).
 
 ## Recommendation
 
