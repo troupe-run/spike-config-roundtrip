@@ -4,6 +4,11 @@ Throwaway feasibility spike. Answers, not production code.
 Stack: Python 3.12+, ruamel.yaml 0.19.1, watchfiles 1.3.0, eventsourcing 9.5.5, jsonschema 4.26.0, pytest.
 Run: `uv run pytest -q`
 
+**Final full-suite run (2026-09-28):** `41 passed in 5.68s`
+(watcher tests in `test_q5_loop_safety.py` additionally re-run 7 times in total with no flakes.)
+
+Verdicts: Q1 yes · Q2 yes-with-caveats · Q3 yes · Q4 yes · Q5 yes · Q6 yes-with-caveats · Q7 yes · Q8 below.
+
 ## Questions
 
 1. Load root + nested includes (yaml-in-yaml-in-yaml, md text include) into a merged view with provenance per node? — see below
