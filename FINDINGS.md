@@ -12,7 +12,7 @@ Run: `uv run pytest -q`
 4. Remote (https) includes: load works, set rejected clearly? — see below
 5. Loop safety: write-back observed by watcher yields zero events; external edit yields exactly expected events? — see below
 6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — see below
-7. Include cycles detected with a clear error? — _pending_
+7. Include cycles detected with a clear error? — see below
 8. Surprises / hard parts / what didn't work — _pending_
 
 ## Q1. Merged view with provenance — **YES**
@@ -223,6 +223,23 @@ Caveats:
   silently passes `"not a uri"`. Install the extra in the real project.
 - Validation runs on the merged (post-include) view. Errors should be reported with provenance (file + line),
   which the provenance table makes straightforward (`error.absolute_path` -> `where()`). Not built here.
+
+## Q7. Include cycles — **YES**
+
+Tests: `tests/test_q7_cycles.py` (4 tests).
+
+Detection is a stack of **canonical** sources (`Path.resolve()` for files, URL string for remote) carried down
+the recursive load; re-entering a source already on the stack raises
+`IncludeCycleError: include cycle detected: /…/a.yml -> /…/b.yml -> /…/a.yml`. Covers two-file cycles, self
+includes, and cycles spelled through different relative paths (`../sub/../a.yml`); `resolve()` also collapses
+symlinks.
+
+Caveat: a **diamond** (two keys including the same file) is correctly *not* a cycle, but it means one file has
+two mount points in the merged view. `set x.v 2` writes `shared.yml` and `y.v` changes too. With content-diff
+reconciliation the projection stays truthful (both `x.v` and `y.v` get `ConfigSet` events), but users may be
+surprised. The real CLI should say "this value is shared with: y.v". Remote URL cycles use the literal URL
+string, so `https://h/a.yaml` vs `https://h/./a.yaml` would evade detection (normalise URLs; also cap include
+depth as a backstop).
 
 ## Recommendation
 
