@@ -383,8 +383,10 @@ def _replace(text, ref, value, old_data, path) -> str:
         c_indent = (len(firsts[0]) - len(firsts[0].lstrip(" "))) if firsts else _parent_indent(text, ref)
     ind = " " * c_indent
 
-    if not multiline:
-        # block -> inline scalar; keep header comment on the same line
+    old_val = _old_value(old_data, path)
+    old_single = isinstance(old_val, str) and "\n" not in old_val.rstrip("\n")
+    if not multiline and not old_single:
+        # multi-line block -> inline scalar; keep header comment on the same line
         r = render_inline(value, None, False)
         if r is None:
             raise SpliceError("cannot render single-line")
@@ -392,8 +394,9 @@ def _replace(text, ref, value, old_data, path) -> str:
         eol = nl if content_end <= len(text) and text[:content_end].endswith("\n") else ""
         return text[:a] + r + header_rest + eol + tail
 
+    if not isinstance(value, str):
+        raise SpliceError("non-string into a block scalar")
     chomp, extra = _chomp_for(value)
-    old_val = _old_value(old_data, path)
     if kind == "|":
         new_vals = _literal_source_lines(value)
         old_vals = _literal_source_lines(old_val if isinstance(old_val, str) else "")
@@ -425,6 +428,8 @@ def _replace(text, ref, value, old_data, path) -> str:
     new_src += [""] * extra
     new_header = kind + (ind1 or "") + chomp + (ind2 or "") + header_rest
     out_body = nl.join(new_src) + nl
+    if content_end >= len(text) and not text.endswith("\n"):
+        out_body = out_body[: -len(nl)]  # file had no final line break; keep it that way
     return text[:a] + new_header + nl + out_body + text[content_end:]
 
 
