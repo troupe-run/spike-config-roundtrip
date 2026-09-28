@@ -62,3 +62,17 @@ def test_text_include_no_trailing_newline_preserved(project, root):
     cfg = Config(root)
     cfg.set("agents.coder.system_prompt", "one\nTWO")
     assert md.read_text() == "one\nTWO"
+
+
+# ---------------------------------------------------------------- the safety net itself
+def test_verifier_rejects_collateral_change():
+    """If a splice ever touched anything besides the target, verification must refuse it."""
+    from spike_config_roundtrip.surgical import SpliceError, _verify
+    old = "a: 1\nb: 'x'\nc: [1, 2]\n"
+    with pytest.raises(SpliceError, match="collateral"):
+        _verify(old, "a: 2\nb: 'y'\nc: [1, 2]\n", ("a",), 2, ("a",))  # b changed too
+    with pytest.raises(SpliceError, match="collateral"):
+        _verify(old, 'a: 2\nb: "x"\nc: [1, 2]\n', ("a",), 2, ("a",))  # only b's quote STYLE changed
+    with pytest.raises(SpliceError, match="kind/style"):
+        _verify(old, "a: 1\nb: 'x'\nc:\n- 1\n- 2\n- 3\n", ("c", 2), 3, ("c", 2))  # flow -> block
+    _verify(old, "a: 2\nb: 'x'\nc: [1, 2]\n", ("a",), 2, ("a",))  # the honest one passes

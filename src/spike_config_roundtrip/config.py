@@ -19,7 +19,7 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
-from .surgical import AliasTargetError, SpliceError, surgical_set
+from .surgical import RejectedSet, SpliceError, surgical_set
 from ruamel.yaml.scalarstring import ScalarString
 
 INCLUDE_RE = re.compile(r"^(file:|https?://)\S+$")
@@ -259,7 +259,7 @@ class Config:
                 new_text = surgical_set(text, full, value)
                 self.last_write_strategy = "splice"
                 self.last_splice_error = None
-            except AliasTargetError as e:
+            except RejectedSet as e:
                 raise ConfigError(f"cannot set {path!r}: {e}") from e
             except SpliceError as e:
                 self.last_write_strategy = "dump"

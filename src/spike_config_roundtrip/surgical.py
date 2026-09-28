@@ -34,7 +34,11 @@ class SpliceError(Exception):
     pass
 
 
-class AliasTargetError(Exception):
+class RejectedSet(Exception):
+    """The set is refused on policy grounds (not a splice limitation)."""
+
+
+class AliasTargetError(RejectedSet):
     pass
 
 
@@ -187,6 +191,9 @@ def render_inline(value, style, flow) -> str | None:
     """Single-line rendering in the requested quote style, or None if it can't be single-line.
     ruamel escalates quoting by itself when a plain rendering would be unsafe (': ', ' #', '*', ...)."""
     v = _styled(value, style)
+    if flow and isinstance(v, (dict, list)):
+        out = _dump(v, flow=True).rstrip("\n")  # NOT via [v]: ruamel shortens [{k: 1}] to [k: 1]
+        return None if "\n" in out else out
     if flow:
         out = _dump([v], flow=True).rstrip("\n")
         if not (out.startswith("[") and out.endswith("]")):
@@ -356,6 +363,8 @@ def _replace(text, ref, value, old_data, path, eff) -> str:
     tag = node.tag if not str(node.tag).startswith(DEFAULT_TAG_PREFIX) else None
     # node properties (anchor `&x`, tag `!t`) are kept verbatim; only the scalar itself is re-rendered
     props = PROPS_RE.match(text, a, b)
+    if tag and not isinstance(value, (str, TaggedScalar)):
+        raise RejectedSet(f"value is tagged {tag}; only a string can be set there (got {type(value).__name__})")
     if props:
         a = props.end()
         if tag and isinstance(value, str) and not isinstance(value, TaggedScalar):
@@ -373,6 +382,19 @@ def _replace(text, ref, value, old_data, path, eff) -> str:
         if ref.flow:
             r = render_inline(value, None, True)
             return text[:a] + lead + r + text[b:]
+        if style in ("|", ">"):
+            # block scalar -> block collection: the header line keeps its comment, the body is swapped
+            hdr_end = line_end(text, a)
+            m = HEADER_RE.match(text[a:hdr_end])
+            rest = text[a + m.end():hdr_end] if m else ""
+            ce = _last_line_end(text, node)
+            s = a
+            while s > 0 and text[s - 1] in " \t":
+                s -= 1
+            ind = " " * _parent_indent(text, ref)
+            block = nl.join(ind + ln if ln else ln for ln in render_block_lines(value, nl))
+            tail = text[ce:]
+            return text[:s] + rest + nl + block + (nl if text[:ce].endswith("\n") else "") + tail
         # scalar -> block collection: drop scalar (and the space before it), put the block after the line
         s = a
         while s > 0 and text[s - 1] in " \t" and not props:
@@ -435,7 +457,7 @@ def _replace(text, ref, value, old_data, path, eff) -> str:
 
     old_val = _old_value(old_data, path)
     old_single = isinstance(old_val, str) and "\n" not in old_val.rstrip("\n")
-    if not multiline and not old_single:
+    if not multiline and (not old_single or not isinstance(value, str)):
         # multi-line block -> inline scalar; keep header comment on the same line
         r = render_inline(value, None, False)
         if r is None:
@@ -444,8 +466,6 @@ def _replace(text, ref, value, old_data, path, eff) -> str:
         eol = nl if content_end <= len(text) and text[:content_end].endswith("\n") else ""
         return text[:a] + r + header_rest + eol + tail
 
-    if not isinstance(value, str):
-        raise SpliceError("non-string into a block scalar")
     chomp, extra = _chomp_for(value)
     if kind == "|":
         new_vals = _literal_source_lines(value)
@@ -482,7 +502,7 @@ def _replace(text, ref, value, old_data, path, eff) -> str:
     new_src += [""] * extra
     new_header = kind + (ind1 or "") + chomp + (ind2 or "") + header_rest
     out_body = nl.join(new_src) + nl
-    if content_end >= len(text) and not text.endswith("\n"):
+    if content_end >= len(text) and not text.endswith("\n") and not value.endswith("\n"):
         out_body = out_body[: -len(nl)]  # file had no final line break; keep it that way
     return text[:a] + new_header + nl + out_body + text[content_end:]
 
