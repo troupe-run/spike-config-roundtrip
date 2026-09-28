@@ -205,10 +205,11 @@ class Config:
         return prov, rel, mode
 
     def _site_desc(self, p):
+        """Name the include reference that lives in a LOCAL file, since that's what a user can change."""
         for i in range(len(p), -1, -1):
-            if p[:i] in self.include_sites:
-                f, inner = self.include_sites[p[:i]]
-                return f"{fmt_path(p[:i])!r} in {f}"
+            site = self.include_sites.get(p[:i])
+            if site and not site[0].startswith(("http://", "https://")):
+                return f"{fmt_path(p[:i])!r} in {site[0]}"
         return "?"
 
     def set(self, path: str, value) -> str:
