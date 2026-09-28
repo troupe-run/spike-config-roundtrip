@@ -19,7 +19,7 @@ def test_new_key_lands_in_owner_of_parent(project, root, path, value, expected_f
         (root.parent / "agents/tester.yaml").write_text("model: haiku\n")
     cfg = Config(root)
     before = snapshot(project)
-    written = cfg.set(path, value)
+    written = cfg.set(path, value, include=path == "agents.tester")  # adding an include is explicit
     assert written == str((root.parent / expected_file).resolve())
     d = diff(before, snapshot(project))
     print(d)

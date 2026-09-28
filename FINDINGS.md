@@ -11,7 +11,7 @@ Run: `uv run pytest -q`
 3. New key under an included node: which file? — see below
 4. Remote (https) includes: load works, set rejected clearly? — see below
 5. Loop safety: write-back observed by watcher yields zero events; external edit yields exactly expected events? — see below
-6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — _pending_
+6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — see below
 7. Include cycles detected with a clear error? — _pending_
 8. Surprises / hard parts / what didn't work — _pending_
 
@@ -189,6 +189,40 @@ Caveats / things the real implementation must handle:
 - Atomic writes (`tempfile` + `os.replace`) create `.troupe-tmp-*` files in the watched dir; the watcher filters
   them. The watcher reconciles on ANY change batch (full reload) rather than per-file; cheap at config sizes and
   it naturally handles newly-added include targets.
+
+## Q6. Schema-guided include detection + `!literal` — **YES, with caveats**
+
+Tests: `tests/test_q6_schema.py` (6 tests).
+
+- Include detection walks the JSON Schema **in parallel with the YAML while loading** (`properties` /
+  `additionalProperties` / `items`). If the subschema at a node has `format: uri` (also `uri-reference`,
+  `iri`), the value stays a literal string, even when it is `file:agents/limits.yaml` and would resolve fine
+  (a control test with no schema proves the same file *is* included otherwise).
+- Untyped URL-shaped values (`extras.notes: file:notes.md`) are included.
+- `!literal "https://…"` loads via ruamel as a `TaggedScalar`; the merged view gets the plain string; it is
+  never fetched. It **round-trips with tag, quote style and trailing comment intact** both when another key is
+  added to the same file (dump path) and when the literal value itself is `set` (splice path):
+  `-  upstream: !literal "https://example.invalid/upstream.yaml"  # escape hatch`
+  `+  upstream: !literal "https://example.invalid/v2.yaml"  # escape hatch`
+- The merged view validates with `jsonschema` (Draft 2020-12) and invalid shapes are rejected.
+
+**Surprise (fixed): `set` of a URL-shaped string silently changes meaning.** `set extras.link
+https://example.invalid/x.yaml` wrote a plain scalar, which on reload became an include, which failed to
+fetch, leaving a config on disk that no longer loads. Two fixes:
+1. `set` writes URL-shaped strings as `!literal "…"` unless the schema says `format: uri` at that path, or the
+   caller passes `include=True` (CLI: `troupe config set --include`). Adding an include is an explicit act.
+2. If the post-write reload fails for any reason, the file is restored and the error re-raised.
+
+Caveats:
+- The spike's schema walker ignores `$ref`, `allOf/anyOf/oneOf`, `if/then`, `patternProperties`. A real
+  implementation needs a proper "subschema at instance path" resolver; with `oneOf` the answer can depend on the
+  value, which is circular (you need to know the value to know whether it's an include). Recommend: keep
+  URI-typed fields out of `oneOf` branches, or require `!literal` there. Check `jsonschema`'s referencing
+  support or write a small resolver over `$defs`/`$ref`.
+- **`jsonschema` does not check `format: uri` unless `rfc3987` (or `jsonschema[format]`) is installed**; it
+  silently passes `"not a uri"`. Install the extra in the real project.
+- Validation runs on the merged (post-include) view. Errors should be reported with provenance (file + line),
+  which the provenance table makes straightforward (`error.absolute_path` -> `where()`). Not built here.
 
 ## Recommendation
 

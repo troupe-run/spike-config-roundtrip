@@ -216,12 +216,27 @@ class Config:
                 return f"{fmt_path(p[:i])!r} in {site[0]}"
         return "?"
 
-    def set(self, path: str, value) -> str:
-        """Write value into the file that owns it. Returns the file written."""
+    def schema_at(self, path: str):
+        sch = self.schema
+        for k in dotted(path):
+            sch = subschema(sch, k)
+        return sch
+
+    def set(self, path: str, value, include: bool = False) -> str:
+        """Write value into the file that owns it. Returns the file written.
+
+        A URL-shaped string is written as `!literal` unless the schema already declares the field a
+        literal URI, or the caller explicitly asks for an include (`include=True`). Otherwise
+        `set x https://...` would silently change meaning from "a value" to "fetch and embed this"."""
+        if (isinstance(value, str) and INCLUDE_RE.match(value) and not include
+                and not schema_says_literal_uri(self.schema_at(path))):
+            value = TaggedScalar(value, style='"', tag=LITERAL_TAG)
         prov, rel, mode = self.plan_set(path, value)
         # compare-and-swap: refuse to clobber a hand edit made since we loaded this file
         if Path(prov.source).read_text() != self.texts[prov.source]:
             raise ConcurrentEditError(f"{prov.source} changed on disk since it was loaded; reload and retry")
+        if mode == "replace-text" and isinstance(value, TaggedScalar):
+            value = str(value.value)  # a text file's content is never an include
         if mode == "replace-text":
             if not isinstance(value, str):
                 raise ConfigError(f"{path!r} is a text include ({prov.source}); value must be a string")
@@ -253,7 +268,13 @@ class Config:
                 self.last_write_strategy = "dump"
                 node[last] = styled
                 _atomic_write(prov.source, dump_like(doc, text))
-        self.reload()
+        original = self.texts[prov.source]
+        try:
+            self.reload()
+        except Exception:
+            _atomic_write(prov.source, original)  # never leave a config that doesn't load
+            self.reload()
+            raise
         return prov.source
 
     # ---- flat leaf view (for event-sourced diffing) ------------------------------
@@ -312,6 +333,8 @@ def _plain(v):
 
 def _restyle(old, new):
     """Keep the old scalar's quoting style when replacing a string with a string."""
+    if isinstance(new, TaggedScalar):
+        return new
     if isinstance(old, ScalarString) and isinstance(new, str):
         return type(old)(new)
     if isinstance(old, TaggedScalar) and isinstance(new, str):
