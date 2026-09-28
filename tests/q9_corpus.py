@@ -87,3 +87,97 @@ case("chomping change: clip value gains trailing newlines -> |+", G,
      [("a", "x\n\n")],
      "a: |+\n  x\n\nb: 1\n",
      note="header indicator changes because the value's trailing newlines changed; that is part of the value")
+
+# ------------------------------------------------------------------ comments everywhere
+G = "comments"
+case("comments above keys", G,
+     "# top\n# about a\na: 1  # eol\n# about b\nb: 2\n",
+     [("b", 3)],
+     "# top\n# about a\na: 1  # eol\n# about b\nb: 3\n")
+case("EOL comments with varied spacing (1 space, 6 spaces)", G,
+     "a: 1 # one space\nb: 22      # six\nc: x  # two\n",
+     [("b", 7), ("c", "yy")],
+     "a: 1 # one space\nb: 7      # six\nc: yy  # two\n",
+     note="EOL comment column shifts by the value's length delta; spacing bytes are untouched")
+case("TAB before an EOL comment (valid YAML 1.2)", G,
+     "c: x\t# tab before\n",
+     [("c", "yy")],
+     "c: x\t# tab before\n", expect="error",
+     note="ruamel.yaml 0.19.1 cannot LOAD this (ScannerError), so no write-back is possible")
+case("comments between list items; change + append", G,
+     "l:\n  - a\n  # between\n  - b\n  # after last\nnext: 1\n",
+     [("l.1", "c"), ("l.2", "d")],
+     "l:\n  - a\n  # between\n  - c\n  - d\n  # after last\nnext: 1\n",
+     note="append goes directly after the last item, above a trailing comment")
+case("comments inside nested mappings; change + add", G,
+     "outer:\n  # c1\n  inner:\n    # c2\n    k: v  # c3\n    # c4\n  other: 1\n",
+     [("outer.inner.k", "w"), ("outer.inner.new", 1)],
+     "outer:\n  # c1\n  inner:\n    # c2\n    k: w  # c3\n    new: 1\n    # c4\n  other: 1\n")
+case("comment at end of file; change + add root key", G,
+     "a: 1\nb: 2\n# trailing comment\n",
+     [("b", 3), ("c", 4)],
+     "a: 1\nb: 3\nc: 4\n# trailing comment\n",
+     note="new key goes above the EOF comment (conservative: the comment may describe b)")
+case("file with no trailing newline; change + add", G,
+     "a: 1\nb: 2",
+     [("b", 3), ("c", 4)],
+     "a: 1\nb: 3\nc: 4")
+case("commented-out key after mapping; add", G,
+     "a:\n  x: 1\n#  y: 2\nb: 1\n",
+     [("a.z", 3)],
+     "a:\n  x: 1\n  z: 3\n#  y: 2\nb: 1\n")
+case("explicit document start marker and header comment", G,
+     "---\n# config\na: 1\n",
+     [("a", 2), ("b", 3)],
+     "---\n# config\na: 2\nb: 3\n")
+
+# ------------------------------------------------------------------ flow collections
+G = "flow collections"
+case("flow mapping: change one, add one", G,
+     "m: {a: 1, b: 2}  # flow\n",
+     [("m.b", 3), ("m.c", 4)],
+     "m: {a: 1, b: 3, c: 4}  # flow\n")
+case("flow sequence: change one, append one", G,
+     "l: [x, y]\n",
+     [("l.0", "z"), ("l.2", "w")],
+     "l: [z, y, w]\n")
+case("nested flow; quote style kept; append inside", G,
+     "m: {l: [1, 2], s: 'q'}\n",
+     [("m.s", "r"), ("m.l.2", 3)],
+     "m: {l: [1, 2, 3], s: 'r'}\n")
+case("flow value that needs quoting", G,
+     "l: [x, y]\n",
+     [("l.0", "a, b")],
+     "l: ['a, b', y]\n")
+case("empty flow collections", G,
+     "m: {}\nl: []\n",
+     [("m.a", 1), ("l.0", "x")],
+     "m: {a: 1}\nl: [x]\n")
+case("multi-line flow mapping", G,
+     "m: {\n  a: 1,\n  b: 2\n}\n",
+     [("m.b", 3), ("m.c", 4)],
+     "m: {\n  a: 1,\n  b: 3, c: 4\n}\n",
+     note="appended element joins the last line rather than getting its own line")
+
+# ------------------------------------------------------------------ lists
+G = "lists"
+case("change an item in a block list", G,
+     "tools:\n  - bash\n  - edit  # the editor\n  - web\n",
+     [("tools.1", "write")],
+     "tools:\n  - bash\n  - write  # the editor\n  - web\n")
+case("append to a block list", G,
+     "tools:\n  - bash\n  - edit\nnext: 1\n",
+     [("tools.2", "web")],
+     "tools:\n  - bash\n  - edit\n  - web\nnext: 1\n")
+case("two indentation styles in one file", G,
+     "a:\n- x\n- y\nb:\n    - p\n    - q\n",
+     [("a.2", "z"), ("b.2", "r"), ("b.0", "P")],
+     "a:\n- x\n- y\n- z\nb:\n    - P\n    - q\n    - r\n")
+case("list of mappings: append a mapping, add key to an item", G,
+     "agents:\n  - name: a\n    model: x\n",
+     [("agents.1", {"name": "b", "model": "y"}), ("agents.0.temp", 0.1)],
+     "agents:\n  - name: a\n    model: x\n    temp: 0.1\n  - name: b\n    model: y\n")
+case("append to a list whose last item is a nested list", G,
+     "m:\n  - - 1\n    - 2\n  - x\n",
+     [("m.2", "y")],
+     "m:\n  - - 1\n    - 2\n  - x\n  - y\n")

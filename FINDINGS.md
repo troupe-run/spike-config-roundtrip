@@ -310,8 +310,32 @@ _Cases and results are being filled in below as each group is done._
 | block scalars | block scalar as sequence item | splice | yes | 2 |  |
 | block scalars | block scalar at EOF without trailing newline | splice | yes | 2 | last line of file has no line break |
 | block scalars | chomping change: clip value gains trailing newlines -> \|+ | splice | yes | 3 | header indicator changes because the value's trailing newlines changed; that is part of the value |
+| comments | comments above keys | splice | yes | 2 |  |
+| comments | EOL comments with varied spacing (1 space, 6 spaces) | splice | yes | 4 | EOL comment column shifts by the value's length delta; spacing bytes are untouched |
+| comments | TAB before an EOL comment (valid YAML 1.2) | error | n/a (rejected) | 0 | ruamel.yaml 0.19.1 cannot LOAD this (ScannerError), so no write-back is possible ScannerError: while scanning for the next token
+found character '\t' that cannot start any token
+  in "<unicode string>", line 1, column 5:
+    c: x	# tab before
+        ^ (line: 1) |
+| comments | comments between list items; change + append | splice | yes | 3 | append goes directly after the last item, above a trailing comment |
+| comments | comments inside nested mappings; change + add | splice | yes | 3 |  |
+| comments | comment at end of file; change + add root key | splice | yes | 3 | new key goes above the EOF comment (conservative: the comment may describe b) |
+| comments | file with no trailing newline; change + add | splice | yes | 3 |  |
+| comments | commented-out key after mapping; add | splice | yes | 1 |  |
+| comments | explicit document start marker and header comment | splice | yes | 3 |  |
+| flow collections | flow mapping: change one, add one | splice | yes | 2 |  |
+| flow collections | flow sequence: change one, append one | splice | yes | 2 |  |
+| flow collections | nested flow; quote style kept; append inside | splice | yes | 2 |  |
+| flow collections | flow value that needs quoting | splice | yes | 2 |  |
+| flow collections | empty flow collections | splice | yes | 4 |  |
+| flow collections | multi-line flow mapping | splice | yes | 2 | appended element joins the last line rather than getting its own line |
+| lists | change an item in a block list | splice | yes | 2 |  |
+| lists | append to a block list | splice | yes | 1 |  |
+| lists | two indentation styles in one file | splice | yes | 4 |  |
+| lists | list of mappings: append a mapping, add key to an item | splice | yes | 3 |  |
+| lists | append to a list whose last item is a nested list | splice | yes | 1 |  |
 
-**15 of 15 cases surgical.**
+**34 of 35 cases surgical.**
 
 <details><summary>Actual diffs for every case (generated)</summary>
 
@@ -498,6 +522,234 @@ _Cases and results are being filled in below as each group is done._
    x
 +
  b: 1
+```
+
+**comments / comments above keys** (`set b`)
+
+```diff
+--- before
++++ after
+@@ -4,2 +4,2 @@
+ # about b
+-b: 2
++b: 3
+```
+
+**comments / EOL comments with varied spacing (1 space, 6 spaces)** (`set b, set c`)
+
+```diff
+--- before
++++ after
+@@ -1,3 +1,3 @@
+ a: 1 # one space
+-b: 22      # six
+-c: x  # two
++b: 7      # six
++c: yy  # two
+```
+
+**comments / TAB before an EOL comment (valid YAML 1.2)** (`set c`)
+
+```diff
+(no change)
+```
+
+**comments / comments between list items; change + append** (`set l.1, set l.2`)
+
+```diff
+--- before
++++ after
+@@ -3,3 +3,4 @@
+   # between
+-  - b
++  - c
++  - d
+   # after last
+```
+
+**comments / comments inside nested mappings; change + add** (`set outer.inner.k, set outer.inner.new`)
+
+```diff
+--- before
++++ after
+@@ -4,3 +4,4 @@
+     # c2
+-    k: v  # c3
++    k: w  # c3
++    new: 1
+     # c4
+```
+
+**comments / comment at end of file; change + add root key** (`set b, set c`)
+
+```diff
+--- before
++++ after
+@@ -1,3 +1,4 @@
+ a: 1
+-b: 2
++b: 3
++c: 4
+ # trailing comment
+```
+
+**comments / file with no trailing newline; change + add** (`set b, set c`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,3 @@
+ a: 1
+-b: 2   [no EOL at end of file]
++b: 3
++c: 4   [no EOL at end of file]
+```
+
+**comments / commented-out key after mapping; add** (`set a.z`)
+
+```diff
+--- before
++++ after
+@@ -2,2 +2,3 @@
+   x: 1
++  z: 3
+ #  y: 2
+```
+
+**comments / explicit document start marker and header comment** (`set a, set b`)
+
+```diff
+--- before
++++ after
+@@ -2,2 +2,3 @@
+ # config
+-a: 1
++a: 2
++b: 3
+```
+
+**flow collections / flow mapping: change one, add one** (`set m.b, set m.c`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-m: {a: 1, b: 2}  # flow
++m: {a: 1, b: 3, c: 4}  # flow
+```
+
+**flow collections / flow sequence: change one, append one** (`set l.0, set l.2`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-l: [x, y]
++l: [z, y, w]
+```
+
+**flow collections / nested flow; quote style kept; append inside** (`set m.s, set m.l.2`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-m: {l: [1, 2], s: 'q'}
++m: {l: [1, 2, 3], s: 'r'}
+```
+
+**flow collections / flow value that needs quoting** (`set l.0`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-l: [x, y]
++l: ['a, b', y]
+```
+
+**flow collections / empty flow collections** (`set m.a, set l.0`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-m: {}
+-l: []
++m: {a: 1}
++l: [x]
+```
+
+**flow collections / multi-line flow mapping** (`set m.b, set m.c`)
+
+```diff
+--- before
++++ after
+@@ -2,3 +2,3 @@
+   a: 1,
+-  b: 2
++  b: 3, c: 4
+ }
+```
+
+**lists / change an item in a block list** (`set tools.1`)
+
+```diff
+--- before
++++ after
+@@ -2,3 +2,3 @@
+   - bash
+-  - edit  # the editor
++  - write  # the editor
+   - web
+```
+
+**lists / append to a block list** (`set tools.2`)
+
+```diff
+--- before
++++ after
+@@ -3,2 +3,3 @@
+   - edit
++  - web
+ next: 1
+```
+
+**lists / two indentation styles in one file** (`set a.2, set b.2, set b.0`)
+
+```diff
+--- before
++++ after
+@@ -3,4 +3,6 @@
+ - y
++- z
+ b:
+-    - p
++    - P
+     - q
++    - r
+```
+
+**lists / list of mappings: append a mapping, add key to an item** (`set agents.1, set agents.0.temp`)
+
+```diff
+--- before
++++ after
+@@ -3 +3,4 @@
+     model: x
++    temp: 0.1
++  - name: b
++    model: y
+```
+
+**lists / append to a list whose last item is a nested list** (`set m.2`)
+
+```diff
+--- before
++++ after
+@@ -4 +4,2 @@
+   - x
++  - y
 ```
 
 </details>

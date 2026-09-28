@@ -18,6 +18,11 @@ def run_case(tmp_path, c):
 
 @pytest.mark.parametrize("c", CASES, ids=[c.name for c in CASES])
 def test_corpus_case(tmp_path, c):
+    if c.expect == "error":
+        with pytest.raises(Exception):
+            run_case(tmp_path, c)
+        assert (tmp_path / "c.yml").read_bytes().decode() == c.after  # untouched
+        return
     after, strategies = run_case(tmp_path, c)
     assert all(s == c.expect for s, _ in strategies), strategies
     assert after == c.after
