@@ -26,3 +26,39 @@ def test_corpus_case(tmp_path, c):
     after, strategies = run_case(tmp_path, c)
     assert all(s == c.expect for s, _ in strategies), strategies
     assert after == c.after
+
+
+# ---------------------------------------------------------------- text (markdown) include
+from conftest import diff, snapshot  # noqa: E402
+
+
+def test_text_include_change_is_minimal_diff(project, root):
+    """Whole-file replace, but the file IS the value, so only changed lines differ."""
+    md = root.parent / "prompts/coder.md"
+    md.write_text("# Coder\n\nYou write code.\nKeep it simple.\n\n## Rules\n- tests first\n- small commits\n")
+    cfg = Config(root)
+    before = snapshot(project)
+    old = cfg.get("agents.coder.system_prompt")
+    cfg.set("agents.coder.system_prompt", old.replace("- small commits", "- tiny commits"))
+    d = diff(before, snapshot(project))
+    print(d)
+    changed = [l for l in d.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+    assert changed == ["-- small commits", "+- tiny commits"]
+
+
+def test_text_include_crlf_file_keeps_crlf_when_given_lf_content(project, root):
+    md = root.parent / "prompts/coder.md"
+    with open(md, "w", newline="") as fh:
+        fh.write("# Coder\r\n\r\nline a\r\nline b\r\n")
+    cfg = Config(root)
+    assert cfg.get("agents.coder.system_prompt") == "# Coder\r\n\r\nline a\r\nline b\r\n"
+    cfg.set("agents.coder.system_prompt", "# Coder\n\nline a\nline B\n")  # e.g. from a CLI arg
+    assert read_exact(str(md)) == "# Coder\r\n\r\nline a\r\nline B\r\n"
+
+
+def test_text_include_no_trailing_newline_preserved(project, root):
+    md = root.parent / "prompts/coder.md"
+    md.write_text("one\ntwo")
+    cfg = Config(root)
+    cfg.set("agents.coder.system_prompt", "one\nTWO")
+    assert md.read_text() == "one\nTWO"

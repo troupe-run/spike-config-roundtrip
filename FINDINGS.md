@@ -312,11 +312,7 @@ _Cases and results are being filled in below as each group is done._
 | block scalars | chomping change: clip value gains trailing newlines -> \|+ | splice | yes | 3 | header indicator changes because the value's trailing newlines changed; that is part of the value |
 | comments | comments above keys | splice | yes | 2 |  |
 | comments | EOL comments with varied spacing (1 space, 6 spaces) | splice | yes | 4 | EOL comment column shifts by the value's length delta; spacing bytes are untouched |
-| comments | TAB before an EOL comment (valid YAML 1.2) | error | n/a (rejected) | 0 | ruamel.yaml 0.19.1 cannot LOAD this (ScannerError), so no write-back is possible ScannerError: while scanning for the next token
-found character '\t' that cannot start any token
-  in "<unicode string>", line 1, column 5:
-    c: x	# tab before
-        ^ (line: 1) |
+| comments | TAB before an EOL comment (valid YAML 1.2) | error | n/a (rejected) | 0 | ruamel.yaml 0.19.1 cannot LOAD this (ScannerError), so no write-back is possible ScannerError: while scanning for the next token |
 | comments | comments between list items; change + append | splice | yes | 3 | append goes directly after the last item, above a trailing comment |
 | comments | comments inside nested mappings; change + add | splice | yes | 3 |  |
 | comments | comment at end of file; change + add root key | splice | yes | 3 | new key goes above the EOF comment (conservative: the comment may describe b) |
@@ -334,8 +330,24 @@ found character '\t' that cannot start any token
 | lists | two indentation styles in one file | splice | yes | 4 |  |
 | lists | list of mappings: append a mapping, add key to an item | splice | yes | 3 |  |
 | lists | append to a list whose last item is a nested list | splice | yes | 1 |  |
+| quoting | plain stays plain | splice | yes | 2 |  |
+| quoting | single-quoted with apostrophe in new value | splice | yes | 2 |  |
+| quoting | double-quoted with escapes | splice | yes | 2 | ruamel emits the tab as \t; é stays literal (original used a \u escape for it) |
+| quoting | plain -> needs quoting: contains ': ' | splice | yes | 2 |  |
+| quoting | plain -> needs quoting: contains ' #' | splice | yes | 2 |  |
+| quoting | plain -> needs quoting: starts with '*' | splice | yes | 2 |  |
+| quoting | plain -> needs quoting: string that looks like a bool/int | splice | yes | 4 |  |
+| quoting | quoted string -> int keeps it an int (type change is the edit) | splice | yes | 2 |  |
+| quoting | !literal tag kept on set | splice | yes | 2 |  |
+| layout | blank lines between sections and key order preserved; add in middle section | splice | yes | 4 |  |
+| layout | deep new path creates intermediate mapping in place | splice | yes | 3 |  |
+| layout | scalar -> mapping keeps EOL comment on the key line | splice | yes | 4 |  |
+| encoding | unicode values and comments | splice | yes | 4 |  |
+| encoding | CRLF line endings: change, append, block scalar, add key | splice | yes | 6 |  |
+| encoding | tabs inside comment text | splice | yes | 4 |  |
+| multi-document | multi-document file (---) | error | n/a (rejected) | 0 | rejected at LOAD time with a clear ConfigError; file untouched ConfigError: /private/var/folders/nn/d2s0hr6x7p73b0gr6gsqp9yw0000gp/T/tmpkrsxq46x/c.yml: multi-document YAML (---) is not supported in troupe config |
 
-**34 of 35 cases surgical.**
+**49 of 51 cases surgical.**
 
 <details><summary>Actual diffs for every case (generated)</summary>
 
@@ -750,6 +762,192 @@ found character '\t' that cannot start any token
 @@ -4 +4,2 @@
    - x
 +  - y
+```
+
+**quoting / plain stays plain** (`set k`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-k: v  # c
++k: w  # c
+```
+
+**quoting / single-quoted with apostrophe in new value** (`set k`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-k: 'v'
++k: 'it''s'
+```
+
+**quoting / double-quoted with escapes** (`set k`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-k: "tab\there \u00e9"
++k: "new\tval é"
+```
+
+**quoting / plain -> needs quoting: contains ': '** (`set k`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-k: v
++k: 'a: b'
+```
+
+**quoting / plain -> needs quoting: contains ' #'** (`set k`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-k: v
++k: 'x # y'
+```
+
+**quoting / plain -> needs quoting: starts with '*'** (`set k`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-k: v
++k: '*star'
+```
+
+**quoting / plain -> needs quoting: string that looks like a bool/int** (`set a, set b`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-a: v
+-b: v
++a: 'true'
++b: '123'
+```
+
+**quoting / quoted string -> int keeps it an int (type change is the edit)** (`set k`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-k: "8000"
++k: 9000
+```
+
+**quoting / !literal tag kept on set** (`set u`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-u: !literal "https://x/a.yaml"  # c
++u: !literal "https://x/b.yaml"  # c
+```
+
+**layout / blank lines between sections and key order preserved; add in middle section** (`set b.c, set b.x, set f`)
+
+```diff
+--- before
++++ after
+@@ -4,5 +4,6 @@
+ b:
+-  c: 2
++  c: 5
+ 
+   d: 3
++  x: 6
+ 
+@@ -10 +11,2 @@
+ e: 4
++f: 7
+```
+
+**layout / deep new path creates intermediate mapping in place** (`set a.c.d.e`)
+
+```diff
+--- before
++++ after
+@@ -2,2 +2,5 @@
+   b: 1
++  c:
++    d:
++      e: 1
+ 
+```
+
+**layout / scalar -> mapping keeps EOL comment on the key line** (`set model`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,4 @@
+-model: 'opus'  # default
++model:  # default
++  name: opus
++  temperature: 0.2
+ next: 1
+```
+
+**encoding / unicode values and comments** (`set name, set emoji`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-name: café ✓  # ünïcode
+-emoji: 🎭
++name: naïve ✓✓  # ünïcode
++emoji: 🎭🎭
+```
+
+**encoding / CRLF line endings: change, append, block scalar, add key** (`set a, set b.2, set c, set d`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-a: 1\r
++a: 2\r
+ b:\r
+@@ -4,4 +4,6 @@
+   - y\r
++  - z\r
+ c: |\r
+   one\r
+-  two\r
++  three\r
++d: 4\r
+```
+
+**encoding / tabs inside comment text** (`set a, set b`)
+
+```diff
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-a: 1  # tab\there
++a: 5  # tab\there
+ #\tindented\tcomment
+-b: 2
++b: 6
+```
+
+**multi-document / multi-document file (---)** (`set a`)
+
+```diff
+(no change)
 ```
 
 </details>

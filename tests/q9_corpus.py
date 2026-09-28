@@ -181,3 +181,57 @@ case("append to a list whose last item is a nested list", G,
      "m:\n  - - 1\n    - 2\n  - x\n",
      [("m.2", "y")],
      "m:\n  - - 1\n    - 2\n  - x\n  - y\n")
+
+# ------------------------------------------------------------------ quoting
+G = "quoting"
+case("plain stays plain", G, "k: v  # c\n", [("k", "w")], "k: w  # c\n")
+case("single-quoted with apostrophe in new value", G,
+     "k: 'v'\n", [("k", "it's")], "k: 'it''s'\n")
+case("double-quoted with escapes", G,
+     'k: "tab\\there \\u00e9"\n', [("k", "new\tval é")], 'k: "new\\tval é"\n',
+     note="ruamel emits the tab as \\t; é stays literal (original used a \\u escape for it)")
+case("plain -> needs quoting: contains ': '", G, "k: v\n", [("k", "a: b")], "k: 'a: b'\n")
+case("plain -> needs quoting: contains ' #'", G, "k: v\n", [("k", "x # y")], "k: 'x # y'\n")
+case("plain -> needs quoting: starts with '*'", G, "k: v\n", [("k", "*star")], "k: '*star'\n")
+case("plain -> needs quoting: string that looks like a bool/int", G,
+     "a: v\nb: v\n", [("a", "true"), ("b", "123")], "a: 'true'\nb: '123'\n")
+case("quoted string -> int keeps it an int (type change is the edit)", G,
+     'k: "8000"\n', [("k", 9000)], "k: 9000\n")
+case("!literal tag kept on set", G,
+     'u: !literal "https://x/a.yaml"  # c\n', [("u", "https://x/b.yaml")], 'u: !literal "https://x/b.yaml"  # c\n')
+
+# ------------------------------------------------------------------ layout
+G = "layout"
+case("blank lines between sections and key order preserved; add in middle section", G,
+     "a: 1\n\n\nb:\n  c: 2\n\n  d: 3\n\n\ne: 4\n",
+     [("b.c", 5), ("b.x", 6), ("f", 7)],
+     "a: 1\n\n\nb:\n  c: 5\n\n  d: 3\n  x: 6\n\n\ne: 4\nf: 7\n")
+case("deep new path creates intermediate mapping in place", G,
+     "a:\n  b: 1\n\nz: 0\n",
+     [("a.c.d.e", 1)],
+     "a:\n  b: 1\n  c:\n    d:\n      e: 1\n\nz: 0\n")
+case("scalar -> mapping keeps EOL comment on the key line", G,
+     "model: 'opus'  # default\nnext: 1\n",
+     [("model", {"name": "opus", "temperature": 0.2})],
+     "model:  # default\n  name: opus\n  temperature: 0.2\nnext: 1\n")
+
+# ------------------------------------------------------------------ unicode / CRLF / tabs
+G = "encoding"
+case("unicode values and comments", G,
+     "name: café ✓  # ünïcode\nemoji: 🎭\n",
+     [("name", "naïve ✓✓"), ("emoji", "🎭🎭")],
+     "name: naïve ✓✓  # ünïcode\nemoji: 🎭🎭\n")
+case("CRLF line endings: change, append, block scalar, add key", G,
+     "a: 1\r\nb:\r\n  - x\r\n  - y\r\nc: |\r\n  one\r\n  two\r\n",
+     [("a", 2), ("b.2", "z"), ("c", "one\nthree\n"), ("d", 4)],
+     "a: 2\r\nb:\r\n  - x\r\n  - y\r\n  - z\r\nc: |\r\n  one\r\n  three\r\nd: 4\r\n")
+case("tabs inside comment text", G,
+     "a: 1  # tab\there\n#\tindented\tcomment\nb: 2\n",
+     [("a", 5), ("b", 6)],
+     "a: 5  # tab\there\n#\tindented\tcomment\nb: 6\n")
+
+# ------------------------------------------------------------------ multi-document
+G = "multi-document"
+case("multi-document file (---)", G,
+     "a: 1\n---\nb: 2\n", [("a", 2)], "a: 1\n---\nb: 2\n", expect="error",
+     note="rejected at LOAD time with a clear ConfigError; file untouched")

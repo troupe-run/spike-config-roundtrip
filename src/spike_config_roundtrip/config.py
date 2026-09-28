@@ -138,7 +138,12 @@ class Config:
         self.texts[source] = text
         suffix = Path(urllib.parse.urlparse(source).path).suffix.lower()
         if suffix in YAML_SUFFIXES:
-            doc = make_yaml().load(text)
+            try:
+                doc = make_yaml().load(text)
+            except Exception as e:
+                if "single document" in str(e):
+                    raise ConfigError(f"{source}: multi-document YAML (---) is not supported in troupe config") from e
+                raise
             self.docs[source] = doc
             return self._walk(doc, source, (), merged_path, schema, stack, via, line=1)
         # text include: whole file is one string scalar

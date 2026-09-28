@@ -25,7 +25,7 @@ def run(c):
                 strat.append(cfg.last_write_strategy)
             after, err = read_exact(str(f)), None
         except Exception as e:
-            after, strat, err = read_exact(str(f)), ["error"], f"{type(e).__name__}: {e}"
+            after, strat, err = read_exact(str(f)), ["error"], f"{type(e).__name__}: {str(e).splitlines()[0]}"
     return after, strat, err
 
 
