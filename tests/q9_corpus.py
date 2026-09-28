@@ -235,3 +235,31 @@ G = "multi-document"
 case("multi-document file (---)", G,
      "a: 1\n---\nb: 2\n", [("a", 2)], "a: 1\n---\nb: 2\n", expect="error",
      note="rejected at LOAD time with a clear ConfigError; file untouched")
+
+# ------------------------------------------------------------------ structural / anchors / nulls
+G = "structural"
+case("anchored scalar: anchor kept, alias follows", G,
+     "a: &x 1  # anchor\nb: *x\n", [("a", 2)], "a: &x 2  # anchor\nb: *x\n",
+     note="setting the ANCHOR is allowed (it's the definition); setting via the alias path is rejected")
+case("tag + anchor on one scalar", G,
+     'a: !literal &q "https://x"\n', [("a", "https://y")], 'a: !literal &q "https://y"\n')
+case("value inside a merge-key base", G,
+     "base: &b\n  x: 1\nuse:\n  <<: *b\n  y: 2\n", [("base.x", 5)], "base: &b\n  x: 5\nuse:\n  <<: *b\n  y: 2\n")
+case("mapping -> scalar (key-line comment kept, next-section comment kept)", G,
+     "m:  # c\n  x: 1\n  y: 2\n# next\nn: 1\n", [("m", "flat")], "m: flat  # c\n# next\nn: 1\n")
+case("mapping -> mapping", G,
+     "m:  # c\n  x: 1\nn: 1\n", [("m", {"z": 9})], "m:  # c\n  z: 9\nn: 1\n")
+case("list -> list keeps the list's dash indentation", G,
+     "l:\n    - 1\nn: 1\n", [("l", [7, 8])], "l:\n    - 7\n    - 8\nn: 1\n")
+case("folded value gains a more-indented line -> that value becomes literal", G,
+     "d: >\n  para one\nn: 1\n", [("d", "para one\n  indented\n")], "d: |\n  para one\n    indented\nn: 1\n",
+     note="style change confined to the changed value; folded can't express it without the more-indented rules")
+case("null (`a:`) -> scalar", G, "a:\nb: 1\n", [("a", 5)], "a: 5\nb: 1\n")
+case("null with comment -> multi-line", G, "a:  # c\nb: 1\n", [("a", "x\ny\n")], "a: |  # c\n  x\n  y\nb: 1\n")
+case("null gains a child key", G, "a:\nb: 1\n", [("a.c", 5)], "a:\n  c: 5\nb: 1\n")
+case("add key that needs quoting / has a space", G,
+     "a: 1\n", [("my key", 1), ("x: y", 2)], "a: 1\nmy key: 1\n'x: y': 2\n")
+case("JSON-style file (it's YAML too): change + add", G,
+     '{"a": 1, "b": [1, 2]}\n', [("a", 5), ("c", 6)], '{"a": 5, "b": [1, 2], c: 6}\n',
+     note="added key is plain-style, not JSON-quoted (style of NEW keys isn't inferred from siblings)")
+case("aligned values", G, "a:     1\nbb:    2\n", [("a", 10)], "a:     10\nbb:    2\n")

@@ -269,23 +269,61 @@ def surgical_set(text: str, path: tuple, value) -> str:
         raise AliasTargetError(f"{'.'.join(map(str, path))!r} is reached through a YAML alias; "
                                f"setting it would also change the anchor and every other alias")
     old_data = load_data(text)
+    eff = [value]
     if ref is not None:
-        new_text = _replace(text, ref, value, old_data, path)
+        new_text = _replace(text, ref, value, old_data, path, eff)
+        changed = path
     else:
-        new_text = _add(text, refs, path, value)
-    _verify(old_data, new_text, path, value)
+        new_text, changed = _add(text, refs, path, value, old_data, eff)
+    _verify(text, new_text, path, eff[0], changed)
     return new_text
 
 
-def _verify(old_data, new_text, path, value):
-    expected = copy.deepcopy(old_data)
-    set_in(expected, path, to_data(value))
+def source_map(text: str) -> dict:
+    """Source-level fingerprint of every node location: kind, tag, style, raw scalar text.
+    Alias re-visits are dropped (their anchor is compared); merge-key contents are not walked."""
+    out = {}
+    for p, r in index(text).items():
+        if r.aliased and p:
+            continue
+        n = r.node
+        key = tuple(str(x) for x in p)
+        if isinstance(n, ScalarNode):
+            out[key] = ("scalar", n.tag, n.style, n.value, getattr(n, "anchor", None))
+        else:
+            out[key] = (type(n).__name__, n.tag, bool(getattr(n, "flow_style", False)), getattr(n, "anchor", None),
+                        tuple(k.value for k, _ in n.value) if isinstance(n, MappingNode) else len(n.value))
+    return out
+
+
+def _verify(old_text, new_text, path, value, changed):
     try:
-        actual = load_data(new_text)
-    except Exception as e:  # produced unparseable YAML
+        new_data = load_data(new_text)
+    except Exception as e:
         raise SpliceError(f"splice produced invalid YAML: {e}") from e
-    if actual != expected:
-        raise SpliceError("splice verification failed: re-parsed data differs from intended change")
+    # 1. the target now holds exactly the new value
+    try:
+        got = _old_value(new_data, path)
+    except (KeyError, IndexError, TypeError) as e:
+        raise SpliceError(f"target missing after splice: {e}") from e
+    if got != to_data(value):
+        raise SpliceError(f"splice verification failed: target is {got!r}, wanted {to_data(value)!r}")
+    # 2. every OTHER source node is identical (only the changed subtree, and the key list /
+    #    length of its immediate parent collection, may differ)
+    cp = tuple(str(x) for x in changed)
+    parent = cp[:-1]
+
+    def outside(m):
+        return {k: v for k, v in m.items() if k[: len(cp)] != cp and k != parent}
+
+    a, b = outside(source_map(old_text)), outside(source_map(new_text))
+    if a != b:
+        diff = sorted(set(a.items()) ^ set(b.items()), key=str)[:4]
+        raise SpliceError(f"splice verification failed: collateral change outside {cp}: {diff}")
+    # the parent collection itself: same kind/tag/style/anchor
+    oa, ob = source_map(old_text).get(parent), source_map(new_text).get(parent)
+    if oa and ob and oa[:4] != ob[:4]:
+        raise SpliceError("parent collection changed kind/style")
 
 
 def _old_value(old_data, path):
@@ -306,31 +344,43 @@ def _parent_indent(text, ref) -> int:
     return (d + 2) if d >= 0 else indent_of_line(text, ref.node.start_mark.index) + 2
 
 
-def _replace(text, ref, value, old_data, path) -> str:
+PROPS_RE = re.compile(r"(?:[&!][^\s]*[ \t]+)+")
+
+
+def _replace(text, ref, value, old_data, path, eff) -> str:
     node, nl = ref.node, newline_of(text)
     if not isinstance(node, ScalarNode):
-        raise SpliceError("replacing a whole mapping/sequence is not spliced (use dump)")
+        return _replace_container(text, ref, value, nl)
     a, b = node.start_mark.index, node.end_mark.index
     style = node.style
     tag = node.tag if not str(node.tag).startswith(DEFAULT_TAG_PREFIX) else None
-    if tag and isinstance(value, str) and not isinstance(value, TaggedScalar):
-        value = TaggedScalar(value, style=style if style in ("'", '"') else None, tag=tag)
+    # node properties (anchor `&x`, tag `!t`) are kept verbatim; only the scalar itself is re-rendered
+    props = PROPS_RE.match(text, a, b)
+    if props:
+        a = props.end()
+        if tag and isinstance(value, str) and not isinstance(value, TaggedScalar):
+            eff[0] = TaggedScalar(value, style=style if style in ("'", '"') else None, tag=tag)
+        if isinstance(value, TaggedScalar):
+            value = str(value.value)
+    elif tag and isinstance(value, str) and not isinstance(value, TaggedScalar):
+        value = eff[0] = TaggedScalar(value, style=style if style in ("'", '"') else None, tag=tag)
+    empty = node.value == "" and style is None and not props  # `key:` with nothing after it (null)
+    if empty and ref.key is not None:
+        a = b = text.index(":", ref.key.end_mark.index) + 1  # compose marks point at the NEXT token
+    lead = " " if empty else ""
 
     if isinstance(value, (dict, list)):
         if ref.flow:
             r = render_inline(value, None, True)
-            return text[:a] + r + text[b:]
+            return text[:a] + lead + r + text[b:]
         # scalar -> block collection: drop scalar (and the space before it), put the block after the line
         s = a
-        while s > 0 and text[s - 1] == " ":
+        while s > 0 and text[s - 1] in " \t" and not props:
             s -= 1
         le = line_end(text, b)
         ind = " " * _parent_indent(text, ref)
         block = nl.join(ind + ln if ln else ln for ln in render_block_lines(value, nl))
-        tail = text[le:]
-        if tail.startswith(nl):
-            return text[:s] + text[b:le] + nl + block + tail
-        return text[:s] + text[b:le] + nl + block + tail  # EOF without newline: stays without
+        return text[:s] + text[b:le] + nl + block + text[le:]
 
     old_is_block = style in ("|", ">")
     multiline = isinstance(value, str) and "\n" in value
@@ -339,7 +389,7 @@ def _replace(text, ref, value, old_data, path) -> str:
         r = render_inline(value, style, ref.flow)
         if r is None:
             raise SpliceError("cannot render single-line")
-        return text[:a] + r + text[b:]
+        return text[:a] + lead + r + text[b:]
 
     if not old_is_block and multiline:
         if ref.flow:
@@ -353,8 +403,8 @@ def _replace(text, ref, value, old_data, path) -> str:
         rest = text[le:]
         body = nl.join(lines)
         if rest.startswith(nl) or rest.startswith("\n"):
-            return text[:a] + "|" + chomp + text[b:le] + nl + body + rest
-        return text[:a] + "|" + chomp + text[b:le] + nl + body + nl  # EOF: block needs a final break
+            return text[:a] + lead + "|" + chomp + text[b:le] + nl + body + rest
+        return text[:a] + lead + "|" + chomp + text[b:le] + nl + body + nl  # EOF: block needs a final break
 
     # ---- old value is a block scalar
     header_end = line_end(text, a)
@@ -406,7 +456,11 @@ def _replace(text, ref, value, old_data, path) -> str:
     else:
         new_pieces = _folded_source_lines(value)
         if new_pieces is None:
-            raise SpliceError("folded value has more-indented lines")
+            # more-indented lines: re-emit THIS value as a literal block (style change confined to it)
+            kind = "|"
+            new_src = [ind + ln if ln else "" for ln in _literal_source_lines(value)] + [""] * extra
+            new_header = kind + (ind1 or "") + chomp + (ind2 or "") + header_rest
+            return text[:a] + new_header + nl + nl.join(new_src) + nl + text[content_end:]
         old_groups = _folded_paragraph_groups(old_src_lines)
         old_pars = [" ".join(l.strip() for l in g) for g in old_groups]
         new_pars = value.rstrip("\n").split("\n")
@@ -431,6 +485,40 @@ def _replace(text, ref, value, old_data, path) -> str:
     if content_end >= len(text) and not text.endswith("\n"):
         out_body = out_body[: -len(nl)]  # file had no final line break; keep it that way
     return text[:a] + new_header + nl + out_body + text[content_end:]
+
+
+def _replace_container(text, ref, value, nl) -> str:
+    node = ref.node
+    if getattr(node, "flow_style", False) or ref.flow:
+        r = render_inline(value, None, True) if isinstance(value, (dict, list)) else render_inline(value, None, True)
+        return text[: node.start_mark.index] + r + text[node.end_mark.index:]
+    if ref.key is None:
+        raise SpliceError("replacing a block collection that is a sequence item is not spliced")
+    # block container under `key:` -- keep the key line (and its comment), swap the body lines
+    body_start = line_start(text, node.start_mark.index)
+    body_end = _last_line_end(text, node)
+    if isinstance(value, (dict, list)) and value:
+        ind = " " * _parent_indent(text, ref)
+        if isinstance(value, list) and _seq_dash_col(text, node) is not None:
+            ind = " " * _seq_dash_col(text, node)  # keep the list's own dash indentation
+        lines = [ind + ln if ln else ln for ln in render_block_lines(value, nl)]
+        return text[:body_start] + nl.join(lines) + nl + text[body_end:]
+    # -> scalar (or empty collection): value goes on the key line after the colon
+    r = render_inline(value, None, False)
+    k_end = ref.key.end_mark.index
+    colon = text.index(":", k_end) + 1
+    le = line_end(text, colon)
+    rest = text[colon:le]  # e.g. '  # comment'
+    return text[:colon] + " " + r + rest + nl + text[body_end:]
+
+
+def _seq_dash_col(text, node):
+    if not isinstance(node, SequenceNode) or not node.value:
+        return None
+    first = node.value[0]
+    ls = line_start(text, first.start_mark.index)
+    d = text[ls:first.start_mark.index].rfind("-")
+    return d if d >= 0 else None
 
 
 def _reuse(old_vals, old_src, new_vals, render):
@@ -471,7 +559,8 @@ def _insert_lines(text, pos, lines, nl) -> str:
     return text[:pos] + block + nl + text[pos:]
 
 
-def _add(text, refs, path, value) -> str:
+def _add(text, refs, path, value, old_data, eff):
+    """Returns (new_text, path of the subtree that changed)."""
     nl = newline_of(text)
     i = len(path) - 1
     while i > 0 and lookup(refs, path[:i]) is None:
@@ -485,6 +574,14 @@ def _add(text, refs, path, value) -> str:
     for k in reversed(rest):
         value = {k: value}
     pnode = parent.node
+    if isinstance(pnode, ScalarNode) and pnode.tag.endswith(":null"):
+        # `a:` (null) gains a child: replace the null with a mapping
+        return _replace(text, parent, {key: value}, old_data, path[:i], [None]), path[:i]
+    changed = path[: i + 1]
+    return _add_into(text, parent, pnode, key, value, nl), changed
+
+
+def _add_into(text, parent, pnode, key, value, nl) -> str:
     flow = bool(getattr(pnode, "flow_style", False))
 
     if isinstance(pnode, SequenceNode):
@@ -510,6 +607,7 @@ def _add(text, refs, path, value) -> str:
 
     if not isinstance(pnode, MappingNode):
         raise SpliceError("parent is not a collection")
+    flow = bool(getattr(pnode, "flow_style", False))
     if flow:
         r = render_inline({key: value}, None, True)  # "{k: v}"
         r = r[1:-1] if r and r.startswith("{") else r

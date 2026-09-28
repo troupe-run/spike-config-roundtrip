@@ -345,9 +345,22 @@ _Cases and results are being filled in below as each group is done._
 | encoding | unicode values and comments | splice | yes | 4 |  |
 | encoding | CRLF line endings: change, append, block scalar, add key | splice | yes | 6 |  |
 | encoding | tabs inside comment text | splice | yes | 4 |  |
-| multi-document | multi-document file (---) | error | n/a (rejected) | 0 | rejected at LOAD time with a clear ConfigError; file untouched ConfigError: /private/var/folders/nn/d2s0hr6x7p73b0gr6gsqp9yw0000gp/T/tmpkrsxq46x/c.yml: multi-document YAML (---) is not supported in troupe config |
+| multi-document | multi-document file (---) | error | n/a (rejected) | 0 | rejected at LOAD time with a clear ConfigError; file untouched ConfigError: /private/var/folders/nn/d2s0hr6x7p73b0gr6gsqp9yw0000gp/T/tmpunkcrf7t/c.yml: multi-document YAML (---) is not supported in troupe config |
+| structural | anchored scalar: anchor kept, alias follows | splice | yes | 2 | setting the ANCHOR is allowed (it's the definition); setting via the alias path is rejected |
+| structural | tag + anchor on one scalar | splice | yes | 2 |  |
+| structural | value inside a merge-key base | splice | yes | 2 |  |
+| structural | mapping -> scalar (key-line comment kept, next-section comment kept) | splice | yes | 4 |  |
+| structural | mapping -> mapping | splice | yes | 2 |  |
+| structural | list -> list keeps the list's dash indentation | splice | yes | 3 |  |
+| structural | folded value gains a more-indented line -> that value becomes literal | splice | yes | 3 | style change confined to the changed value; folded can't express it without the more-indented rules |
+| structural | null (`a:`) -> scalar | splice | yes | 2 |  |
+| structural | null with comment -> multi-line | splice | yes | 4 |  |
+| structural | null gains a child key | splice | yes | 1 |  |
+| structural | add key that needs quoting / has a space | splice | yes | 2 |  |
+| structural | JSON-style file (it's YAML too): change + add | splice | yes | 2 | added key is plain-style, not JSON-quoted (style of NEW keys isn't inferred from siblings) |
+| structural | aligned values | splice | yes | 2 |  |
 
-**49 of 51 cases surgical.**
+**62 of 64 cases surgical.**
 
 <details><summary>Actual diffs for every case (generated)</summary>
 
@@ -948,6 +961,157 @@ _Cases and results are being filled in below as each group is done._
 
 ```diff
 (no change)
+```
+
+**structural / anchored scalar: anchor kept, alias follows** (`set a`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-a: &x 1  # anchor
++a: &x 2  # anchor
+ b: *x
+```
+
+**structural / tag + anchor on one scalar** (`set a`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-a: !literal &q "https://x"
++a: !literal &q "https://y"
+```
+
+**structural / value inside a merge-key base** (`set base.x`)
+
+```diff
+--- before
++++ after
+@@ -1,3 +1,3 @@
+ base: &b
+-  x: 1
++  x: 5
+ use:
+```
+
+**structural / mapping -> scalar (key-line comment kept, next-section comment kept)** (`set m`)
+
+```diff
+--- before
++++ after
+@@ -1,4 +1,2 @@
+-m:  # c
+-  x: 1
+-  y: 2
++m: flat  # c
+ # next
+```
+
+**structural / mapping -> mapping** (`set m`)
+
+```diff
+--- before
++++ after
+@@ -1,3 +1,3 @@
+ m:  # c
+-  x: 1
++  z: 9
+ n: 1
+```
+
+**structural / list -> list keeps the list's dash indentation** (`set l`)
+
+```diff
+--- before
++++ after
+@@ -1,3 +1,4 @@
+ l:
+-    - 1
++    - 7
++    - 8
+ n: 1
+```
+
+**structural / folded value gains a more-indented line -> that value becomes literal** (`set d`)
+
+```diff
+--- before
++++ after
+@@ -1,3 +1,4 @@
+-d: >
++d: |
+   para one
++    indented
+ n: 1
+```
+
+**structural / null (`a:`) -> scalar** (`set a`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-a:
++a: 5
+ b: 1
+```
+
+**structural / null with comment -> multi-line** (`set a`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,4 @@
+-a:  # c
++a: |  # c
++  x
++  y
+ b: 1
+```
+
+**structural / null gains a child key** (`set a.c`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,3 @@
+ a:
++  c: 5
+ b: 1
+```
+
+**structural / add key that needs quoting / has a space** (`set my key, set x: y`)
+
+```diff
+--- before
++++ after
+@@ -1 +1,3 @@
+ a: 1
++my key: 1
++'x: y': 2
+```
+
+**structural / JSON-style file (it's YAML too): change + add** (`set a, set c`)
+
+```diff
+--- before
++++ after
+@@ -1 +1 @@
+-{"a": 1, "b": [1, 2]}
++{"a": 5, "b": [1, 2], c: 6}
+```
+
+**structural / aligned values** (`set a`)
+
+```diff
+--- before
++++ after
+@@ -1,2 +1,2 @@
+-a:     1
++a:     10
+ bb:    2
 ```
 
 </details>
