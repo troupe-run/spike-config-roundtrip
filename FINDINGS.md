@@ -13,7 +13,7 @@ Run: `uv run pytest -q`
 5. Loop safety: write-back observed by watcher yields zero events; external edit yields exactly expected events? — see below
 6. Schema-guided include detection (`format: uri` literal, untyped URL included, `!literal` round-trips)? — see below
 7. Include cycles detected with a clear error? — see below
-8. Surprises / hard parts / what didn't work — _pending_
+8. Surprises / hard parts / what didn't work — see below
 
 ## Q1. Merged view with provenance — **YES**
 
@@ -241,6 +241,82 @@ surprised. The real CLI should say "this value is shared with: y.v". Remote URL 
 string, so `https://h/a.yaml` vs `https://h/./a.yaml` would evade detection (normalise URLs; also cap include
 depth as a backstop).
 
+## Q8. Surprises, hard parts, and what didn't work
+
+Pinned in `tests/test_q8_hazards.py` (3 tests that describe **current** behaviour, named as hazards, not as
+features) plus the fixes already noted above.
+
+1. **ruamel round-trip is "comment-preserving", not "byte-preserving".** A plain load->mutate->dump re-indents
+   every block sequence in the file and loses spacing before trailing comments on changed lines. This was the
+   biggest surprise: the headline library feature is weaker than its reputation. The splice strategy (parser
+   event spans) is what actually makes the write-back diffs minimal. **This is the single most important
+   finding for the real implementation.**
+2. **ruamel attaches trailing blank lines + standalone comments to the preceding key**, so appends land under
+   the next section's comment. Fixed with `_steal_trailing_comment` for mappings; **not** handled for
+   sequences or for comments in other positions (e.g. a comment block at the very end of the file). Expect a
+   long tail of these; build a golden-diff corpus.
+3. **YAML anchors/aliases break the "one merged path = one location" model.** Setting through an alias
+   (`reviewer: *d`) silently mutates the anchor and every other alias. Merge keys (`<<: *d`) give no line
+   provenance for merged-in keys; a set there adds a local override (arguably correct). Recommendation: forbid
+   anchors/aliases in troupe config (includes already cover reuse), or reject sets whose target node is
+   aliased. Not implemented in the spike.
+4. **A URL-shaped `set` value silently becomes an include**, and a failed include fetch left an unloadable
+   config on disk. Fixed (auto-`!literal`, explicit `include=True`, rollback on failed reload). The same issue
+   applies to hand edits (a user pastes a URL into an untyped field); the watcher will try to fetch it. The
+   real design should surface that as a load error event with provenance, not crash the daemon.
+5. **Echo-suppression isn't needed, but concurrency control is.** Content-diff idempotence makes duplicate events
+   impossible; it does nothing for lost updates (CLI write clobbering a concurrent hand edit) or for
+   attribution (`cli` vs `file-watch`). Added compare-and-swap; attribution relies on an in-process lock.
+6. **`jsonschema` silently ignores `format: uri`** without the `rfc3987` extra.
+7. **Schema-guided detection is circular under `oneOf`/`anyOf`** (the branch depends on the value, the value
+   depends on whether it's an include). Not solved; the spike walker only handles
+   `properties`/`additionalProperties`/`items`.
+8. **Things not attempted:** multi-document YAML files, flow-style (`{a: 1}`) collections under the splice path
+   (they fall back to dump, untested), YAML 1.1 vs 1.2 booleans (`yes`/`on`), Windows paths, remote caching and
+   pinning, cross-process locking between a CLI process and a daemon, performance on large configs (every
+   reconcile is a full reload + full flat diff; trivially fast here).
+9. **Minor:** first `detect_indent` heuristic only looks at the first block sequence; `ConfigRemoved` was needed
+   in addition to `ConfigSet` (removal vs YAML null); list items as leaves means an insert at index 0 emits one
+   event per shifted item.
+
 ## Recommendation
 
-_pending_
+**Library choices**
+- **ruamel.yaml (round-trip mode)** for parsing, provenance (`.lc`), comment-preserving structural writes, and
+  its low-level `parse()` event API for exact scalar spans. Always `preserve_quotes=True`, large `width`,
+  per-file detected `indent()`. No viable alternative in Python for comment-preserving YAML; just don't rely
+  on dump alone.
+- **watchfiles** for the watcher: worked first time on macOS (FSEvents), sub-second latency with
+  `debounce=100`. Prove readiness before relying on it.
+- **eventsourcing** (9.5.x): minimal ceremony for `ConfigSet`/`ConfigRemoved` on a per-project aggregate; POPO
+  store for tests. Persisting values as JSON through its transcoder was fine for scalars, strings, lists, dicts.
+- **jsonschema** with the `format` extra; plus a proper subschema-at-path resolver (`$ref`/`$defs`) written for
+  include detection.
+
+**Write-back rule set**
+1. An existing value is written to `provenance[path].source` at `inner_path`. Text includes: the whole target
+   file is the value.
+2. A new key goes to the file owning the deepest existing ancestor; intermediate mappings are created there.
+3. Scalar -> scalar: byte-exact splice via parser event spans, same quoting style/tag, verified by re-parse.
+   Anything structural: ruamel dump of that one file with detected indentation and trailing-comment fix-up.
+4. Remote targets (value, text, or new key under a remote mapping): reject before writing or emitting, naming
+   the local include site.
+5. URL-shaped strings are written `!literal` unless the schema says `format: uri` or the user explicitly asks
+   for an include (`--include`).
+6. Compare-and-swap on the file text; atomic write (temp + `os.replace`); roll back if the result doesn't load.
+7. Refuse to replace a whole include root, or to set through an alias (to build).
+8. Every entry into the projection goes through one `reconcile(source)` = full reload + flat diff. This is the
+   loop-safety mechanism; no echo flags.
+
+**Risks for the real implementation**
+- ruamel comment/format edge cases (Q8.1-2): budget for a golden-diff fixture corpus and treat any unexpected
+  diff line as a bug. Highest-effort risk.
+- Cross-process concurrency: CLI and daemon both writing. Route `troupe config set` through the daemon (single
+  writer, owns lock and watcher) or add file locks.
+- Remote includes changing silently: pin content hashes in the projection; make refresh an explicit command.
+- Schema composition (`oneOf`, `$ref`) vs include detection: constrain schema authoring, or require `!literal`
+  in ambiguous places.
+- Anchors/aliases and diamond includes: one location, many paths. Decide policy early (recommend: forbid
+  aliases; warn on shared includes).
+- Projection granularity (list items as leaves) affects event volume and will be hard to change once events
+  are persisted. Decide before the first real event store.
