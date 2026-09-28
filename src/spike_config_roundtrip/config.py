@@ -360,75 +360,7 @@ def _restyle(old, new):
     return new
 
 
-def scalar_span(text: str, inner_path: tuple):
-    """Exact [start, end) character span of the scalar at inner_path, via parser events."""
-    stack: list[list] = []  # frames: ["map", pending_key|None, expecting_key] / ["seq", next_index]
-    path: list = []
-
-    def current_child_path():
-        f = stack[-1]
-        return (*path, f[1]) if f[0] == "map" else (*path, f[1])
-
-    for e in YAML().parse(text):
-        name = type(e).__name__
-        if name in ("MappingStartEvent", "SequenceStartEvent", "ScalarEvent", "AliasEvent"):
-            is_key = bool(stack) and stack[-1][0] == "map" and stack[-1][2]
-            if is_key:
-                stack[-1][1] = e.value
-                stack[-1][2] = False
-                continue
-            child = current_child_path() if stack else ()
-            if name == "ScalarEvent" or name == "AliasEvent":
-                if tuple(child) == tuple(inner_path):
-                    return e.start_mark.index, e.end_mark.index
-                _advance(stack)
-            else:
-                if stack:
-                    path.append(stack[-1][1])
-                stack.append(["map", None, True] if name == "MappingStartEvent" else ["seq", 0])
-        elif name in ("MappingEndEvent", "SequenceEndEvent"):
-            stack.pop()
-            if stack:
-                path.pop()
-                _advance(stack)
-    return None
-
-
-def _advance(stack):
-    f = stack[-1]
-    if f[0] == "map":
-        f[2] = True
-    else:
-        f[1] += 1
-
-
-def render_scalar(value) -> str | None:
-    buf = io.StringIO()
-    make_yaml().dump({"k": value}, buf)
-    out = buf.getvalue()
-    assert out.startswith("k: ")
-    out = out[3:].rstrip("\n")
-    if out.endswith("\n...") or "\n" in out:
-        return None  # multi-line rendering: let the dump path handle it
-    return out
-
-
-def splice_scalar(text: str, inner_path: tuple, value) -> str | None:
-    """Replace one scalar's characters in-place. Everything else stays byte-identical.
-    Returns None if not applicable (then caller falls back to a full ruamel dump)."""
-    span = scalar_span(text, inner_path)
-    rendered = render_scalar(value)
-    if span is None or rendered is None:
-        return None
-    a, b = span
-    if "\n" in text[a:b]:
-        return None  # old value was a multi-line/block scalar
-    new_text = text[:a] + rendered + text[b:]
-    # safety net: re-parse and confirm we changed exactly what we meant to
-    check = make_yaml().load(new_text)
-    for k in inner_path:
-        check = check[k]
-    return new_text if _plain(check) == _plain(value) else None
+# (Q2's event-span scalar splice lived here; superseded by surgical.py in Q9.)
 
 
 def detect_indent(text: str) -> tuple[int, int, int]:
